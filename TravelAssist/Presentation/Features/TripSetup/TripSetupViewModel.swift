@@ -11,7 +11,6 @@ final class TripSetupViewModel: ObservableObject {
     @Published var customLeadTimeText = ""
     @Published var useCustomLeadTime = false
 
-    @Published var isMonitoringScreenPresented = false
     @Published var errorMessage: String?
 
     let leadTimeOptions = [5, 10, 20, 30]
@@ -52,7 +51,6 @@ final class TripSetupViewModel: ObservableObject {
             )
             startUseCase.execute(session: session)
             errorMessage = nil
-            isMonitoringScreenPresented = true
         } catch {
             errorMessage = error.localizedDescription
         }
