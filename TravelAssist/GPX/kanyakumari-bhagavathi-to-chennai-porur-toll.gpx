@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Codex" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Kanyakumari Bhagavathi Amman Temple to Chennai Porur Toll Gate</name>
+    <desc>Simulated driving route for iOS Simulator testing.</desc>
+    <time>2026-03-08T18:00:00Z</time>
+  </metadata>
+
+  <wpt lat="8.079167" lon="77.550833">
+    <name>Kanyakumari Bhagavathi Amman Temple</name>
+  </wpt>
+
+  <wpt lat="13.043500" lon="80.149600">
+    <name>Chennai Porur Toll Gate</name>
+  </wpt>
+
+  <rte>
+    <name>Kanyakumari to Porur Toll Gate</name>
+    <rtept lat="8.079167" lon="77.550833"><name>Start - Bhagavathi Amman Temple</name></rtept>
+    <rtept lat="8.183300" lon="77.411900"><name>Nagercoil</name></rtept>
+    <rtept lat="8.713900" lon="77.756700"><name>Tirunelveli</name></rtept>
+    <rtept lat="9.454600" lon="77.797500"><name>Virudhunagar Zone</name></rtept>
+    <rtept lat="9.925200" lon="78.119800"><name>Madurai</name></rtept>
+    <rtept lat="10.790500" lon="78.704700"><name>Tiruchirappalli</name></rtept>
+    <rtept lat="11.234200" lon="78.880000"><name>Perambalur Zone</name></rtept>
+    <rtept lat="11.689000" lon="79.286100"><name>Ulundurpet</name></rtept>
+    <rtept lat="12.234300" lon="79.655400"><name>Tindivanam</name></rtept>
+    <rtept lat="12.692600" lon="79.978700"><name>Chengalpattu</name></rtept>
+    <rtept lat="12.924900" lon="80.127500"><name>Tambaram Corridor</name></rtept>
+    <rtept lat="13.043500" lon="80.149600"><name>End - Porur Toll Gate</name></rtept>
+  </rte>
+
+  <trk>
+    <name>Simulator Track - Kanyakumari to Porur</name>
+    <trkseg>
+      <trkpt lat="8.079167" lon="77.550833"><time>2026-03-08T18:00:00Z</time></trkpt>
+      <trkpt lat="8.131234" lon="77.481366"><time>2026-03-08T18:20:00Z</time></trkpt>
+      <trkpt lat="8.183300" lon="77.411900"><time>2026-03-08T18:40:00Z</time></trkpt>
+      <trkpt lat="8.301100" lon="77.498100"><time>2026-03-08T19:00:00Z</time></trkpt>
+      <trkpt lat="8.419000" lon="77.584300"><time>2026-03-08T19:20:00Z</time></trkpt>
+      <trkpt lat="8.536900" lon="77.670500"><time>2026-03-08T19:40:00Z</time></trkpt>
+      <trkpt lat="8.654700" lon="77.756700"><time>2026-03-08T20:00:00Z</time></trkpt>
+      <trkpt lat="8.854700" lon="77.767900"><time>2026-03-08T20:20:00Z</time></trkpt>
+      <trkpt lat="9.054600" lon="77.779100"><time>2026-03-08T20:40:00Z</time></trkpt>
+      <trkpt lat="9.254600" lon="77.790300"><time>2026-03-08T21:00:00Z</time></trkpt>
+      <trkpt lat="9.454600" lon="77.797500"><time>2026-03-08T21:20:00Z</time></trkpt>
+      <trkpt lat="9.611500" lon="77.905000"><time>2026-03-08T21:40:00Z</time></trkpt>
+      <trkpt lat="9.768300" lon="78.012400"><time>2026-03-08T22:00:00Z</time></trkpt>
+      <trkpt lat="9.925200" lon="78.119800"><time>2026-03-08T22:20:00Z</time></trkpt>
+      <trkpt lat="10.098300" lon="78.236800"><time>2026-03-08T22:40:00Z</time></trkpt>
+      <trkpt lat="10.271300" lon="78.353700"><time>2026-03-08T23:00:00Z</time></trkpt>
+      <trkpt lat="10.444400" lon="78.470700"><time>2026-03-08T23:20:00Z</time></trkpt>
+      <trkpt lat="10.617400" lon="78.587700"><time>2026-03-08T23:40:00Z</time></trkpt>
+      <trkpt lat="10.790500" lon="78.704700"><time>2026-03-09T00:00:00Z</time></trkpt>
+      <trkpt lat="10.938400" lon="78.763100"><time>2026-03-09T00:20:00Z</time></trkpt>
+      <trkpt lat="11.086300" lon="78.821500"><time>2026-03-09T00:40:00Z</time></trkpt>
+      <trkpt lat="11.234200" lon="78.880000"><time>2026-03-09T01:00:00Z</time></trkpt>
+      <trkpt lat="11.385800" lon="79.015300"><time>2026-03-09T01:20:00Z</time></trkpt>
+      <trkpt lat="11.537400" lon="79.150700"><time>2026-03-09T01:40:00Z</time></trkpt>
+      <trkpt lat="11.689000" lon="79.286100"><time>2026-03-09T02:00:00Z</time></trkpt>
+      <trkpt lat="11.870800" lon="79.409200"><time>2026-03-09T02:20:00Z</time></trkpt>
+      <trkpt lat="12.052500" lon="79.532300"><time>2026-03-09T02:40:00Z</time></trkpt>
+      <trkpt lat="12.234300" lon="79.655400"><time>2026-03-09T03:00:00Z</time></trkpt>
+      <trkpt lat="12.387100" lon="79.763200"><time>2026-03-09T03:20:00Z</time></trkpt>
+      <trkpt lat="12.539800" lon="79.870900"><time>2026-03-09T03:40:00Z</time></trkpt>
+      <trkpt lat="12.692600" lon="79.978700"><time>2026-03-09T04:00:00Z</time></trkpt>
+      <trkpt lat="12.809300" lon="80.053100"><time>2026-03-09T04:20:00Z</time></trkpt>
+      <trkpt lat="12.924900" lon="80.127500"><time>2026-03-09T04:40:00Z</time></trkpt>
+      <trkpt lat="12.984100" lon="80.138500"><time>2026-03-09T05:00:00Z</time></trkpt>
+      <trkpt lat="13.043500" lon="80.149600"><time>2026-03-09T05:20:00Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

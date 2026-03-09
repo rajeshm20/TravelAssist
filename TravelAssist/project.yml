@@ -1,0 +1,43 @@
+name: TravelAssist
+options:
+  bundleIdPrefix: com.rajeshmani.TravelAssist
+settings:
+  base:
+    SWIFT_VERSION: 5.10
+targets:
+  TravelAssist:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: App
+      - path: Core
+      - path: Data
+      - path: Domain
+      - path: Presentation
+      - path: TravelAssistApp.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rajeshmani.TravelAssist
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Used to track your journey and alert before destination."
+        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "Used to monitor location in background for destination alerts."
+        INFOPLIST_KEY_UIBackgroundModes: ["location", "fetch"]
+        INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers: ["com.rajeshmani.TravelAssist.refresh"]
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 1.0
+    dependencies:
+      - target: TravelAssistWidget
+
+  TravelAssistWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Widget
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rajeshmani.TravelAssist.widget
+        INFOPLIST_KEY_NSExtensionPointIdentifier: "com.apple.widgetkit-extension"
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 1.0
+
