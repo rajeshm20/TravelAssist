@@ -4,6 +4,7 @@ import Foundation
 protocol ObserveTripStateUseCase {
     func sessionStream() -> AnyPublisher<TripSession?, Never>
     func snapshotStream() -> AnyPublisher<TravelSnapshot?, Never>
+    func historyStream() -> AnyPublisher<[TripHistorySession], Never>
 }
 
 struct ObserveTripStateUseCaseImpl: ObserveTripStateUseCase {
@@ -20,5 +21,8 @@ struct ObserveTripStateUseCaseImpl: ObserveTripStateUseCase {
     func snapshotStream() -> AnyPublisher<TravelSnapshot?, Never> {
         repository.snapshotPublisher
     }
-}
 
+    func historyStream() -> AnyPublisher<[TripHistorySession], Never> {
+        repository.historyPublisher
+    }
+}

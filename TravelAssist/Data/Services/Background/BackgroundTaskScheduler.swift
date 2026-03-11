@@ -2,13 +2,19 @@ import BackgroundTasks
 import Foundation
 
 protocol BackgroundTaskScheduler {
-    func register()
+    func register(refreshHandler: @escaping () -> Void)
     func scheduleRefresh()
 }
 
 final class IOSBackgroundTaskScheduler: BackgroundTaskScheduler {
-    func register() {
-        BGTaskScheduler.shared.register(
+    private var refreshHandler: (() -> Void)?
+    private var isRegistered = false
+
+    func register(refreshHandler: @escaping () -> Void) {
+        self.refreshHandler = refreshHandler
+        guard !isRegistered else { return }
+
+        isRegistered = BGTaskScheduler.shared.register(
             forTaskWithIdentifier: AppConstants.backgroundRefreshTaskID,
             using: nil
         ) { [weak self] task in
@@ -17,6 +23,8 @@ final class IOSBackgroundTaskScheduler: BackgroundTaskScheduler {
     }
 
     func scheduleRefresh() {
+        guard isRegistered else { return }
+
         let request = BGAppRefreshTaskRequest(identifier: AppConstants.backgroundRefreshTaskID)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
 
@@ -31,6 +39,7 @@ final class IOSBackgroundTaskScheduler: BackgroundTaskScheduler {
         guard let task else { return }
 
         scheduleRefresh()
+        refreshHandler?()
         task.expirationHandler = {
             task.setTaskCompleted(success: false)
         }
@@ -38,4 +47,3 @@ final class IOSBackgroundTaskScheduler: BackgroundTaskScheduler {
         task.setTaskCompleted(success: true)
     }
 }
-

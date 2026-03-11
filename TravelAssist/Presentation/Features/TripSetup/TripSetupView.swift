@@ -6,6 +6,7 @@ struct TripSetupView: View {
     @ObservedObject var viewModel: TripSetupViewModel
     @StateObject private var monitoringViewModel: MonitoringViewModel
     @State private var isDestinationPickerPresented = false
+    @State private var isHistoryPresented = false
     @StateObject private var routePreviewViewModel = RoutePreviewViewModel()
 
     init(
@@ -25,6 +26,16 @@ struct TripSetupView: View {
                             keyValueRow(title: "Distance", value: monitoringViewModel.distanceText)
                             keyValueRow(title: "ETA", value: monitoringViewModel.etaText)
                             keyValueRow(title: "Status", value: monitoringViewModel.statusText)
+                            iconValueRow(
+                                title: "Journey",
+                                symbol: monitoringViewModel.selectedJourneyModeSymbol,
+                                value: monitoringViewModel.selectedJourneyModeText
+                            )
+                            iconValueRow(
+                                title: "Detected",
+                                symbol: monitoringViewModel.detectedModeSymbol,
+                                value: monitoringViewModel.detectedModeText
+                            )
 
                             if monitoringViewModel.isLoadingInitialSnapshot {
                                 HStack(spacing: 8) {
@@ -41,11 +52,11 @@ struct TripSetupView: View {
                         .background(Color(.secondarySystemBackground))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                        Button("Stop Monitoring") {
+                        Button(monitoringViewModel.stopButtonTitle) {
                             monitoringViewModel.stopMonitoring()
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(.red)
+                        .tint(monitoringViewModel.stopButtonTitle == "Stop Monitoring" ? .red : .orange)
                     }
                 }
 
@@ -61,27 +72,33 @@ struct TripSetupView: View {
                     }
                 }
 
+                Section("Journey Mode") {
+                    Picker("Mode", selection: $viewModel.selectedJourneyMode) {
+                        ForEach(JourneyMode.allCases) { mode in
+                            Label(mode.title, systemImage: mode.symbolName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
                 Section("Route Preview") {
-                    RoutePreviewMapView(viewModel: routePreviewViewModel)
+                    RoutePreviewMapView(
+                        viewModel: routePreviewViewModel,
+                        isMonitoringActive: monitoringViewModel.isMonitoring
+                    )
                         .frame(height: 220)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .onAppear {
-                            routePreviewViewModel.updateDestination(
-                                latitudeText: viewModel.destinationLatitudeText,
-                                longitudeText: viewModel.destinationLongitudeText
-                            )
+                            syncRoutePreviewDestination()
                         }
                         .onChange(of: viewModel.destinationLatitudeText) { _, _ in
-                            routePreviewViewModel.updateDestination(
-                                latitudeText: viewModel.destinationLatitudeText,
-                                longitudeText: viewModel.destinationLongitudeText
-                            )
+                            syncRoutePreviewDestination()
                         }
                         .onChange(of: viewModel.destinationLongitudeText) { _, _ in
-                            routePreviewViewModel.updateDestination(
-                                latitudeText: viewModel.destinationLatitudeText,
-                                longitudeText: viewModel.destinationLongitudeText
-                            )
+                            syncRoutePreviewDestination()
+                        }
+                        .onChange(of: monitoringViewModel.activeSession?.id) { _, _ in
+                            syncRoutePreviewDestination()
                         }
 
                     if let routeStatusMessage = routePreviewViewModel.routeStatusMessage {
@@ -91,17 +108,39 @@ struct TripSetupView: View {
                     }
                 }
 
-                Section("Wake-up Lead Time") {
-                    Picker("Lead Time", selection: $viewModel.selectedLeadTimeMinutes) {
-                        ForEach(viewModel.leadTimeOptions, id: \.self) { minutes in
-                            Text("\(minutes) min").tag(minutes)
+                Section("Wake-up Lead Time (HH:mm)") {
+                    DatePicker(
+                        "Lead Time",
+                        selection: Binding(
+                            get: { viewModel.leadTimePickerDate },
+                            set: { viewModel.updateLeadTime(from: $0) }
+                        ),
+                        displayedComponents: .hourAndMinute
+                    )
+                    .datePickerStyle(.wheel)
+                    .environment(\.locale, Locale(identifier: "en_GB"))
+
+                    Text("Selected lead time: \(viewModel.leadTimeFormatted)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Monitoring History") {
+                    Button {
+                        isHistoryPresented = true
+                    } label: {
+                        HStack {
+                            Text("View Session History")
+                            Spacer()
+                            Text("\(monitoringViewModel.historySessions.count)")
+                                .foregroundStyle(.secondary)
                         }
                     }
 
-                    Toggle("Use custom minutes", isOn: $viewModel.useCustomLeadTime)
-                    if viewModel.useCustomLeadTime {
-                        TextField("Custom minutes", text: $viewModel.customLeadTimeText)
-                            .keyboardType(.numberPad)
+                    if let latest = monitoringViewModel.historySessions.first {
+                        Text("Latest: \(Self.historyDateTimeFormatter.string(from: latest.startedAt))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -132,6 +171,11 @@ struct TripSetupView: View {
                     viewModel.applyDestinationFromAppleMaps(name: name, coordinate: coordinate)
                 }
             }
+            .sheet(isPresented: $isHistoryPresented) {
+                MonitoringHistoryBottomSheet(sessions: monitoringViewModel.historySessions)
+                    .presentationDetents([.fraction(0.25), .medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
         }
     }
 
@@ -144,6 +188,37 @@ struct TripSetupView: View {
             Text(value)
         }
     }
+
+    @ViewBuilder
+    private func iconValueRow(title: String, symbol: String, value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .fontWeight(.semibold)
+            Spacer()
+            Image(systemName: symbol)
+                .foregroundStyle(.secondary)
+            Text(value)
+        }
+    }
+
+    private func syncRoutePreviewDestination() {
+        if let sessionDestination = monitoringViewModel.activeSession?.destinationCoordinate {
+            routePreviewViewModel.updateDestination(coordinate: sessionDestination)
+            return
+        }
+
+        routePreviewViewModel.updateDestination(
+            latitudeText: viewModel.destinationLatitudeText,
+            longitudeText: viewModel.destinationLongitudeText
+        )
+    }
+
+    private static let historyDateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 }
 
 private struct DestinationSearchSheet: View {
@@ -255,6 +330,115 @@ private struct DestinationSearchSheet: View {
                 }
             }
         }
+    }
+}
+
+private struct MonitoringHistoryBottomSheet: View {
+    let sessions: [TripHistorySession]
+    @State private var expandedSessions = Set<UUID>()
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if sessions.isEmpty {
+                    Text("No monitoring history yet.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(sessions) { session in
+                        DisclosureGroup(
+                            isExpanded: Binding(
+                                get: { expandedSessions.contains(session.id) },
+                                set: { isExpanded in
+                                    if isExpanded {
+                                        expandedSessions.insert(session.id)
+                                    } else {
+                                        expandedSessions.remove(session.id)
+                                    }
+                                }
+                            )
+                        ) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                historyRow(title: "Started", value: Self.dateTimeFormatter.string(from: session.startedAt))
+                                historyRow(title: "Ended", value: Self.dateTimeFormatter.string(from: session.endedAt))
+                                historyRow(title: "Duration", value: Self.durationText(session.duration))
+                                historyRow(title: "Route points", value: "\(session.pointsCount)")
+                                historyRow(
+                                    title: "Destination",
+                                    value: String(format: "%.5f, %.5f", session.destinationLatitude, session.destinationLongitude)
+                                )
+                                historyRow(title: "Status", value: session.completionStatus.title)
+                                iconHistoryRow(
+                                    title: "Selected mode",
+                                    symbol: session.selectedJourneyMode.symbolName,
+                                    value: session.selectedJourneyMode.title
+                                )
+                                iconHistoryRow(
+                                    title: "Detected mode",
+                                    symbol: session.finalDetectedActivity.symbolName,
+                                    value: session.finalDetectedActivity.title
+                                )
+                                if !session.gpxFilePath.isEmpty {
+                                    historyRow(title: "GPX file", value: session.gpxFilePath)
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 6)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(Self.dateTimeFormatter.string(from: session.startedAt))
+                                    .font(.subheadline.weight(.semibold))
+                                Text(session.gpxFileName)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Session History")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    @ViewBuilder
+    private func historyRow(title: String, value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(title)
+                .fontWeight(.semibold)
+            Spacer(minLength: 12)
+            Text(value)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    @ViewBuilder
+    private func iconHistoryRow(title: String, symbol: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(title)
+                .fontWeight(.semibold)
+            Spacer(minLength: 12)
+            Image(systemName: symbol)
+            Text(value)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private static let dateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static func durationText(_ seconds: TimeInterval) -> String {
+        let total = max(Int(seconds.rounded()), 0)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let secs = total % 60
+        return String(format: "%02d:%02d:%02d", hours, minutes, secs)
     }
 }
 
@@ -382,6 +566,7 @@ private struct RecentDestination: Codable, Identifiable {
 
 private struct RoutePreviewMapView: View {
     @ObservedObject var viewModel: RoutePreviewViewModel
+    let isMonitoringActive: Bool
 
     var body: some View {
         ZStack {
@@ -395,7 +580,7 @@ private struct RoutePreviewMapView: View {
                 ProgressView("Loading route...")
                     .padding(10)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-            } else if viewModel.destinationCoordinate == nil {
+            } else if viewModel.destinationCoordinate == nil && !isMonitoringActive {
                 Text("Select destination to preview route")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -565,6 +750,12 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
         }
 
         destinationCoordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        routeStatusMessage = nil
+        refreshRouteIfPossible()
+    }
+
+    func updateDestination(coordinate: CLLocationCoordinate2D) {
+        destinationCoordinate = coordinate
         routeStatusMessage = nil
         refreshRouteIfPossible()
     }

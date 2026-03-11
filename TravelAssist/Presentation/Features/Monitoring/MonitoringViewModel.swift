@@ -6,8 +6,15 @@ final class MonitoringViewModel: ObservableObject {
     @Published var distanceText = "--"
     @Published var etaText = "--"
     @Published var statusText = "Waiting for first location..."
+    @Published var detectedModeText = "--"
+    @Published var detectedModeSymbol = "location.fill"
+    @Published var selectedJourneyModeText = "--"
+    @Published var selectedJourneyModeSymbol = "car.fill"
+    @Published var stopButtonTitle = "Stop Monitoring"
     @Published var isMonitoring = false
     @Published var isLoadingInitialSnapshot = false
+    @Published var historySessions: [TripHistorySession] = []
+    @Published var activeSession: TripSession?
 
     private let observeUseCase: ObserveTripStateUseCase
     private let stopUseCase: StopTripMonitoringUseCase
@@ -39,10 +46,14 @@ final class MonitoringViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] session in
                 guard let self else { return }
+                self.activeSession = session
                 self.isMonitoring = (session != nil)
                 self.hasReceivedSnapshotForCurrentSession = false
 
                 if session != nil {
+                    self.selectedJourneyModeText = session?.selectedJourneyMode.title ?? "--"
+                    self.selectedJourneyModeSymbol = session?.selectedJourneyMode.symbolName ?? "car.fill"
+                    self.stopButtonTitle = "Stop Monitoring"
                     self.distanceText = "--"
                     self.etaText = "--"
                     self.isLoadingInitialSnapshot = true
@@ -51,6 +62,11 @@ final class MonitoringViewModel: ObservableObject {
                     self.distanceText = "--"
                     self.etaText = "--"
                     self.statusText = "No active trip session."
+                    self.detectedModeText = "--"
+                    self.detectedModeSymbol = "location.fill"
+                    self.selectedJourneyModeText = "--"
+                    self.selectedJourneyModeSymbol = "car.fill"
+                    self.stopButtonTitle = "Stop Monitoring"
                     self.isLoadingInitialSnapshot = false
                     self.stopLoadingStatusCycle()
                 }
@@ -79,17 +95,33 @@ final class MonitoringViewModel: ObservableObject {
                 self.hasReceivedSnapshotForCurrentSession = true
                 self.isLoadingInitialSnapshot = false
                 self.stopLoadingStatusCycle()
+                self.detectedModeText = snapshot.detectedActivity.title
+                self.detectedModeSymbol = snapshot.detectedActivity.symbolName
 
                 if snapshot.distanceMeters <= 0.5 {
                     self.distanceText = "0 m"
                     self.etaText = "00:00"
                     self.statusText = "Reached destination"
+                    self.stopButtonTitle = "Stop Monitoring"
                     return
                 }
 
                 self.distanceText = Self.formatDistance(snapshot.distanceMeters)
                 self.etaText = Self.formatETA(snapshot.etaSeconds)
-                self.statusText = "Updated \(Self.timeFormatter.string(from: snapshot.updatedAt))"
+                if snapshot.monitoringState == .atRest {
+                    self.statusText = "At rest. GPS paused to save battery."
+                    self.stopButtonTitle = "Idle / At Rest"
+                } else {
+                    self.statusText = "Updated \(Self.timeFormatter.string(from: snapshot.updatedAt))"
+                    self.stopButtonTitle = "Stop Monitoring"
+                }
+            }
+            .store(in: &cancellables)
+
+        observeUseCase.historyStream()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] sessions in
+                self?.historySessions = sessions
             }
             .store(in: &cancellables)
     }

@@ -19,7 +19,11 @@ enum BuildTripSessionError: LocalizedError {
 }
 
 protocol BuildTripSessionUseCase {
-    func execute(destination: CLLocationCoordinate2D, leadTimeMinutes: Int) throws -> TripSession
+    func execute(
+        destination: CLLocationCoordinate2D,
+        leadTimeMinutes: Int,
+        selectedJourneyMode: JourneyMode
+    ) throws -> TripSession
 }
 
 struct BuildTripSessionUseCaseImpl: BuildTripSessionUseCase {
@@ -29,7 +33,11 @@ struct BuildTripSessionUseCaseImpl: BuildTripSessionUseCase {
         self.locationProvider = locationProvider
     }
 
-    func execute(destination: CLLocationCoordinate2D, leadTimeMinutes: Int) throws -> TripSession {
+    func execute(
+        destination: CLLocationCoordinate2D,
+        leadTimeMinutes: Int,
+        selectedJourneyMode: JourneyMode
+    ) throws -> TripSession {
         guard leadTimeMinutes > 0 else {
             throw BuildTripSessionError.invalidLeadTime
         }
@@ -46,7 +54,8 @@ struct BuildTripSessionUseCaseImpl: BuildTripSessionUseCase {
         return TripSession(
             startCoordinate: startCoordinate,
             destinationCoordinate: destination,
-            leadTimeMinutes: leadTimeMinutes
+            leadTimeMinutes: leadTimeMinutes,
+            selectedJourneyMode: selectedJourneyMode
         )
     }
 }

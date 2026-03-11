@@ -13,17 +13,19 @@ struct MonitoringView: View {
                 keyValueRow(title: "Distance", value: viewModel.distanceText)
                 keyValueRow(title: "ETA", value: viewModel.etaText)
                 keyValueRow(title: "Status", value: viewModel.statusText)
+                iconValueRow(title: "Journey", symbol: viewModel.selectedJourneyModeSymbol, value: viewModel.selectedJourneyModeText)
+                iconValueRow(title: "Detected", symbol: viewModel.detectedModeSymbol, value: viewModel.detectedModeText)
             }
             .padding()
             .background(Color(.secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
 
-            Button("Stop Monitoring") {
+            Button(viewModel.stopButtonTitle) {
                 viewModel.stopMonitoring()
                 dismiss()
             }
             .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .tint(viewModel.stopButtonTitle == "Stop Monitoring" ? .red : .orange)
         }
         .padding()
         .navigationBarTitleDisplayMode(.inline)
@@ -38,5 +40,15 @@ struct MonitoringView: View {
             Text(value)
         }
     }
-}
 
+    @ViewBuilder
+    private func iconValueRow(title: String, symbol: String, value: String) -> some View {
+        HStack {
+            Text(title)
+                .fontWeight(.semibold)
+            Spacer()
+            Image(systemName: symbol)
+            Text(value)
+        }
+    }
+}

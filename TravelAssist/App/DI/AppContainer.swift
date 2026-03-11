@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class AppContainer {
     private let backgroundTaskScheduler: BackgroundTaskScheduler
+    private let tripMonitoringRepository: TripMonitoringRepository
 
     private let buildTripSessionUseCase: BuildTripSessionUseCase
     private let prepareCurrentLocationUseCase: PrepareCurrentLocationUseCase
@@ -27,15 +28,23 @@ final class AppContainer {
         )
 
         self.backgroundTaskScheduler = bgScheduler
+        self.tripMonitoringRepository = repository
         self.buildTripSessionUseCase = BuildTripSessionUseCaseImpl(locationProvider: currentLocationProvider)
         self.prepareCurrentLocationUseCase = PrepareCurrentLocationUseCaseImpl(locationProvider: currentLocationProvider)
         self.startUseCase = StartTripMonitoringUseCaseImpl(repository: repository)
         self.stopUseCase = StopTripMonitoringUseCaseImpl(repository: repository)
         self.observeUseCase = ObserveTripStateUseCaseImpl(repository: repository)
+
+        // Register once during container creation so scheduler is ready before any restore flow schedules refresh.
+        self.backgroundTaskScheduler.register { [weak self] in
+            self?.tripMonitoringRepository.refreshFromBackground()
+        }
     }
 
     func registerBackgroundTasks() {
-        backgroundTaskScheduler.register()
+        backgroundTaskScheduler.register { [weak self] in
+            self?.tripMonitoringRepository.refreshFromBackground()
+        }
     }
 
     func makeTripSetupViewModel() -> TripSetupViewModel {

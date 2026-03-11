@@ -62,6 +62,19 @@ final class CoreLocationService: NSObject, LocationService {
         manager.requestLocation()
     }
 
+    func stopStandardUpdates() {
+        manager.stopUpdatingLocation()
+    }
+
+    func requestOneTimeLocation() {
+        let status = manager.authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
+            requestPermissionsIfNeeded()
+            return
+        }
+        manager.requestLocation()
+    }
+
     func startSignificantUpdates() {
         manager.startMonitoringSignificantLocationChanges()
     }

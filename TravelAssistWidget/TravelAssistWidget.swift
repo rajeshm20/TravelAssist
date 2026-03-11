@@ -39,7 +39,7 @@ struct TravelStatusProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<TravelStatusEntry>) -> Void) {
         let entry = loadEntry()
-        let refreshDate = Calendar.current.date(byAdding: .minute, value: 5, to: .now) ?? .now.addingTimeInterval(300)
+        let refreshDate = Calendar.current.date(byAdding: .minute, value: 1, to: .now) ?? .now.addingTimeInterval(60)
         completion(Timeline(entries: [entry], policy: .after(refreshDate)))
     }
 
