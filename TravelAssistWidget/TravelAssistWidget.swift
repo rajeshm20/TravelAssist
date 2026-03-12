@@ -14,6 +14,8 @@ struct TravelStatusEntry: TimelineEntry {
     let distanceText: String
     let etaText: String
     let statusText: String
+    let modeSymbolName: String
+    let modeText: String
     let distanceProgress: Double
     let timeProgress: Double
 }
@@ -28,6 +30,8 @@ struct TravelStatusProvider: TimelineProvider {
             distanceText: "2.3 km",
             etaText: "12 min",
             statusText: "Updated just now",
+            modeSymbolName: "car.fill",
+            modeText: "Car",
             distanceProgress: 0.35,
             timeProgress: 0.30
         )
@@ -54,6 +58,8 @@ struct TravelStatusProvider: TimelineProvider {
                 distanceText: "--",
                 etaText: "--",
                 statusText: "No active trip",
+                modeSymbolName: "location.fill",
+                modeText: "No trip",
                 distanceProgress: 0,
                 timeProgress: 0
             )
@@ -67,7 +73,13 @@ struct TravelStatusProvider: TimelineProvider {
         }
         let etaMinutes = Int((snapshot.etaSeconds / 60).rounded())
         let etaText = "\(etaMinutes) min"
-        let statusText = resolvedStatusText(snapshot: snapshot, etaMinutes: etaMinutes, session: session)
+        let modePresentation = resolvedModePresentation(snapshot: snapshot, session: session)
+        let statusText = resolvedStatusText(
+            snapshot: snapshot,
+            etaMinutes: etaMinutes,
+            session: session,
+            modePresentation: modePresentation
+        )
         let distanceProgress = resolvedDistanceProgress(snapshot: snapshot, session: session)
         let timeProgress = resolvedTimeProgress(snapshot: snapshot, session: session)
 
@@ -76,6 +88,8 @@ struct TravelStatusProvider: TimelineProvider {
             distanceText: distanceText,
             etaText: etaText,
             statusText: statusText,
+            modeSymbolName: modePresentation.symbolName,
+            modeText: modePresentation.title,
             distanceProgress: distanceProgress,
             timeProgress: timeProgress
         )
@@ -91,7 +105,8 @@ struct TravelStatusProvider: TimelineProvider {
     private func resolvedStatusText(
         snapshot: WidgetSnapshotPayload,
         etaMinutes: Int,
-        session: WidgetSessionPayload?
+        session: WidgetSessionPayload?,
+        modePresentation: ModePresentation
     ) -> String {
         if Date().timeIntervalSince(snapshot.updatedAt) > staleDataThresholdSeconds {
             return "Waiting for fresh location"
@@ -101,11 +116,30 @@ struct TravelStatusProvider: TimelineProvider {
             return "Reached destination"
         }
 
+        if parsedMonitoringState(from: snapshot) == .atRest {
+            return "Idle / At Rest"
+        }
+
+        if let activity = parsedDetectedActivity(from: snapshot) {
+            switch activity {
+            case .stationary:
+                return "Idle / At Rest"
+            case .walking, .running, .climbing:
+                return activity.statusText
+            case .unknown:
+                break
+            }
+        }
+
         if let leadTimeMinutes = session?.leadTimeMinutes, etaMinutes <= leadTimeMinutes {
             return "Arriving soon"
         }
 
-        return "On the way"
+        if let selectedMode = parsedSelectedJourneyMode(from: session) {
+            return selectedMode.statusText
+        }
+
+        return modePresentation.title == "Moving" ? "On the way" : "\(modePresentation.title) in progress"
     }
 
     private func resolvedDistanceProgress(
@@ -152,11 +186,44 @@ struct TravelStatusProvider: TimelineProvider {
         min(max(value, 0), 1)
     }
 
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter
-    }()
+    private func resolvedModePresentation(
+        snapshot: WidgetSnapshotPayload,
+        session: WidgetSessionPayload?
+    ) -> ModePresentation {
+        if parsedMonitoringState(from: snapshot) == .atRest {
+            return ModePresentation(symbolName: "pause.circle", title: "At Rest")
+        }
+
+        if let activity = parsedDetectedActivity(from: snapshot), activity != .unknown {
+            return ModePresentation(symbolName: activity.symbolName, title: activity.title)
+        }
+
+        if let selectedMode = parsedSelectedJourneyMode(from: session) {
+            return ModePresentation(symbolName: selectedMode.symbolName, title: selectedMode.title)
+        }
+
+        return ModePresentation(symbolName: "location.fill", title: "Moving")
+    }
+
+    private func parsedSelectedJourneyMode(from session: WidgetSessionPayload?) -> WidgetJourneyMode? {
+        guard let rawValue = session?.selectedJourneyModeRaw else { return nil }
+        return WidgetJourneyMode(rawValue: rawValue)
+    }
+
+    private func parsedDetectedActivity(from snapshot: WidgetSnapshotPayload) -> WidgetDetectedActivity? {
+        guard let rawValue = snapshot.detectedActivityRaw else { return nil }
+        return WidgetDetectedActivity(rawValue: rawValue)
+    }
+
+    private func parsedMonitoringState(from snapshot: WidgetSnapshotPayload) -> WidgetMonitoringState? {
+        guard let rawValue = snapshot.monitoringStateRaw else { return nil }
+        return WidgetMonitoringState(rawValue: rawValue)
+    }
+}
+
+private struct ModePresentation {
+    let symbolName: String
+    let title: String
 }
 
 struct TravelStatusWidgetView: View {
@@ -181,7 +248,7 @@ struct TravelStatusWidgetView: View {
     }
 
     private var inlineContent: some View {
-        Text("ETA \(entry.etaText) • \(entry.distanceText)")
+        Text("\(Image(systemName: entry.modeSymbolName)) \(entry.etaText) • \(entry.distanceText)")
             .lineLimit(1)
             .font(.caption)
     }
@@ -195,7 +262,7 @@ struct TravelStatusWidgetView: View {
                 .stroke(.tint, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             VStack(spacing: 1) {
-                Text("ETA")
+                Image(systemName: entry.modeSymbolName)
                     .font(.system(size: 9, weight: .semibold))
                 Text(entry.etaText.replacingOccurrences(of: " ", with: ""))
                     .font(.system(size: 10, weight: .bold))
@@ -206,6 +273,9 @@ struct TravelStatusWidgetView: View {
 
     private var accessoryContent: some View {
         VStack(alignment: .leading, spacing: 4) {
+            Label(entry.modeText, systemImage: entry.modeSymbolName)
+                .font(.caption2)
+                .lineLimit(1)
             Text("ETA \(entry.etaText) • \(entry.distanceText)")
                 .font(.caption)
                 .lineLimit(1)
@@ -221,6 +291,9 @@ struct TravelStatusWidgetView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("TravelAssist")
                 .font(.headline)
+            Label(entry.modeText, systemImage: entry.modeSymbolName)
+                .font(.caption)
+                .lineLimit(1)
             progressRow(title: "Distance", value: entry.distanceProgress, trailingText: entry.distanceText)
             progressRow(title: "Time", value: entry.timeProgress, trailingText: entry.etaText)
             Text(entry.statusText)
@@ -263,6 +336,8 @@ private struct WidgetSnapshotPayload: Codable {
     let longitude: Double
     let distanceMeters: Double
     let etaSeconds: Double
+    let detectedActivityRaw: String?
+    let monitoringStateRaw: String?
     let updatedAt: Date
 }
 
@@ -272,5 +347,91 @@ private struct WidgetSessionPayload: Codable {
     let destinationLatitude: Double?
     let destinationLongitude: Double?
     let leadTimeMinutes: Int
+    let selectedJourneyModeRaw: String?
     let startedAt: Date
+}
+
+private enum WidgetJourneyMode: String, Codable {
+    case walk
+    case run
+    case cycle
+    case motorbike
+    case bus
+    case car
+
+    var title: String {
+        switch self {
+        case .walk: return "Walk"
+        case .run: return "Run"
+        case .cycle: return "Cycle"
+        case .motorbike: return "Motorbike"
+        case .bus: return "Bus"
+        case .car: return "Car"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .walk: return "figure.walk"
+        case .run: return "figure.run"
+        case .cycle: return "figure.outdoor.cycle"
+        case .motorbike: return "motorcycle.fill"
+        case .bus: return "bus.fill"
+        case .car: return "car.fill"
+        }
+    }
+
+    var statusText: String {
+        switch self {
+        case .walk: return "Walking to destination"
+        case .run: return "Running to destination"
+        case .cycle: return "Cycling to destination"
+        case .motorbike: return "Riding to destination"
+        case .bus: return "On bus route"
+        case .car: return "Driving to destination"
+        }
+    }
+}
+
+private enum WidgetDetectedActivity: String, Codable {
+    case stationary
+    case walking
+    case running
+    case climbing
+    case unknown
+
+    var title: String {
+        switch self {
+        case .stationary: return "At Rest"
+        case .walking: return "Walking"
+        case .running: return "Running"
+        case .climbing: return "Climbing"
+        case .unknown: return "Moving"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .stationary: return "pause.circle"
+        case .walking: return "figure.walk"
+        case .running: return "figure.run"
+        case .climbing: return "figure.climbing"
+        case .unknown: return "location.fill"
+        }
+    }
+
+    var statusText: String {
+        switch self {
+        case .stationary: return "Idle / At Rest"
+        case .walking: return "Walking to destination"
+        case .running: return "Running to destination"
+        case .climbing: return "Climbing route"
+        case .unknown: return "On the way"
+        }
+    }
+}
+
+private enum WidgetMonitoringState: String, Codable {
+    case active
+    case atRest
 }

@@ -1,12 +1,22 @@
 import SwiftUI
 import MapKit
 import Combine
+import AVFoundation
+import AudioToolbox
 
 struct TripSetupView: View {
     @ObservedObject var viewModel: TripSetupViewModel
     @StateObject private var monitoringViewModel: MonitoringViewModel
+    @StateObject private var fakeCallSpeaker = FakeCallSpeaker()
+    @StateObject private var fakeCallFeedback = FakeIncomingCallFeedback()
     @State private var isDestinationPickerPresented = false
     @State private var isHistoryPresented = false
+    @State private var isLeadTimePickerExpanded = false
+    @State private var isRoutePreviewExpanded = false
+    @State private var isFakeCallPresented = false
+    @State private var isFakeCallSpeaking = false
+    @State private var activeFakeCallCallerName = "Travel Assist"
+    @State private var activeFakeCallMessage = AppConstants.fakeCallNotificationMessage
     @StateObject private var routePreviewViewModel = RoutePreviewViewModel()
 
     init(
@@ -19,152 +29,305 @@ struct TripSetupView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                if monitoringViewModel.isMonitoring {
-                    Section("Trip Monitoring") {
-                        VStack(spacing: 10) {
-                            keyValueRow(title: "Distance", value: monitoringViewModel.distanceText)
-                            keyValueRow(title: "ETA", value: monitoringViewModel.etaText)
-                            keyValueRow(title: "Status", value: monitoringViewModel.statusText)
-                            iconValueRow(
+            ZStack(alignment: .bottom) {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.93, green: 0.94, blue: 0.97),
+                        Color(red: 0.90, green: 0.91, blue: 0.95)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            Text("Home")
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(.black.opacity(0.82))
+
+                            Spacer()
+
+                            Text(Self.headerDateFormatter.string(from: Date()))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Hi Traveler,")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text(greetingTitle)
+                                .font(.title2.weight(.bold))
+                                .fontDesign(.rounded)
+                                .foregroundStyle(.black.opacity(0.9))
+                        }
+
+                        ZStack(alignment: .trailing) {
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color(red: 0.99, green: 0.43, blue: 0.23), Color(red: 0.99, green: 0.57, blue: 0.21)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Trip Monitoring")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.85))
+
+                                Text(monitoringViewModel.isMonitoring ? monitoringViewModel.statusText : "No active trip session")
+                                    .font(.title3.weight(.bold))
+                                    .fontDesign(.rounded)
+                                    .foregroundStyle(.white)
+                                    .lineLimit(2)
+
+                                HStack(spacing: 8) {
+                                    metricPill(
+                                        title: "Distance",
+                                        value: monitoringViewModel.isMonitoring ? monitoringViewModel.distanceText : "--",
+                                        icon: "location.fill"
+                                    )
+                                    metricPill(
+                                        title: "ETA",
+                                        value: monitoringViewModel.isMonitoring ? monitoringViewModel.etaText : "--",
+                                        icon: "clock.fill"
+                                    )
+                                }
+
+                                if monitoringViewModel.isLoadingInitialSnapshot {
+                                    HStack(spacing: 6) {
+                                        ProgressView()
+                                            .tint(.white)
+                                        Text("Getting live updates...")
+                                            .font(.caption2)
+                                            .foregroundStyle(.white.opacity(0.85))
+                                    }
+                                }
+
+                                Button(monitoringViewModel.isMonitoring ? monitoringViewModel.stopButtonTitle : "Start Monitoring") {
+                                    if monitoringViewModel.isMonitoring {
+                                        monitoringViewModel.stopMonitoring()
+                                    } else {
+                                        viewModel.startMonitoring()
+                                    }
+                                }
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.95), in: Capsule())
+                                .foregroundStyle(statusAccentColor)
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Image(systemName: monitoringViewModel.selectedJourneyModeSymbol)
+                                .font(.system(size: 74, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.28))
+                                .padding(.trailing, 14)
+                        }
+                        .frame(minHeight: 180)
+
+                        if let errorMessage = viewModel.errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                        }
+
+                        softCard {
+                            HStack {
+                                Label("Destination", systemImage: "mappin.and.ellipse")
+                                    .font(.headline.weight(.semibold))
+                                    .foregroundStyle(.black.opacity(0.85))
+                                Spacer()
+                                Button("Pick") {
+                                    isDestinationPickerPresented = true
+                                }
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(Color(red: 0.91, green: 0.93, blue: 0.98), in: Capsule())
+                            }
+
+                            if let selectedDestinationName = viewModel.selectedDestinationName {
+                                Text(selectedDestinationName)
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.black.opacity(0.82))
+                                    .lineLimit(2)
+                            } else {
+                                Text("Select destination from Apple Maps")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if let latitude = Double(viewModel.destinationLatitudeText),
+                               let longitude = Double(viewModel.destinationLongitudeText) {
+                                Text(String(format: "%.5f, %.5f", latitude, longitude))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        softCard {
+                            HStack {
+                                Label("Trip Details", systemImage: "list.bullet.rectangle.portrait")
+                                    .font(.headline.weight(.semibold))
+                                Spacer()
+                                if monitoringViewModel.isMonitoring {
+                                    Text("Live")
+                                        .font(.caption2.weight(.bold))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.green.opacity(0.18), in: Capsule())
+                                        .foregroundStyle(Color.green.opacity(0.9))
+                                }
+                            }
+
+                            detailRow(title: "Distance", value: monitoringViewModel.isMonitoring ? monitoringViewModel.distanceText : "--")
+                            detailRow(title: "ETA (Hour/Min)", value: monitoringViewModel.isMonitoring ? monitoringViewModel.etaText : "--")
+                            detailRow(title: "Status", value: monitoringViewModel.statusText)
+                            detailIconRow(
                                 title: "Journey",
                                 symbol: monitoringViewModel.selectedJourneyModeSymbol,
                                 value: monitoringViewModel.selectedJourneyModeText
                             )
-                            iconValueRow(
+                            detailIconRow(
                                 title: "Detected",
                                 symbol: monitoringViewModel.detectedModeSymbol,
                                 value: monitoringViewModel.detectedModeText
                             )
+                        }
 
-                            if monitoringViewModel.isLoadingInitialSnapshot {
-                                HStack(spacing: 8) {
-                                    ProgressView()
-                                        .progressViewStyle(.circular)
-                                    Text("Getting live updates...")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
+                        HStack(spacing: 12) {
+                            softCard {
+                                Label("Journey Mode", systemImage: viewModel.selectedJourneyMode.symbolName)
+                                    .font(.headline.weight(.semibold))
+                                Text(viewModel.selectedJourneyMode.title)
+                                    .font(.title3.weight(.bold))
+                                    .fontDesign(.rounded)
+                                Picker("Mode", selection: $viewModel.selectedJourneyMode) {
+                                    ForEach(JourneyMode.allCases) { mode in
+                                        Label(mode.title, systemImage: mode.symbolName).tag(mode)
+                                    }
                                 }
+                                .pickerStyle(.menu)
+                                .labelsHidden()
+                            }
+                            .frame(maxWidth: .infinity)
+
+                            softCard {
+                                Label("Lead Time", systemImage: "clock.badge.checkmark")
+                                    .font(.headline.weight(.semibold))
+                                Text(viewModel.leadTimeFormatted)
+                                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                                    .monospacedDigit()
+                                Button("Change HH:mm") {
+                                    isLeadTimePickerExpanded = true
+                                }
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(Color(red: 0.94, green: 0.95, blue: 1.0), in: Capsule())
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+
+                        softCard {
+                            HStack {
+                                Label("Route Preview", systemImage: "map.fill")
+                                    .font(.headline.weight(.semibold))
+                            }
+
+                            RoutePreviewMapView(
+                                viewModel: routePreviewViewModel,
+                                isMonitoringActive: monitoringViewModel.isMonitoring,
+                                onExpand: {
+                                    isRoutePreviewExpanded = true
+                                },
+                                shouldFollowUserWhenMoving: false
+                            )
+                            .frame(height: 185)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .onAppear {
+                                syncRoutePreviewDestination()
+                            }
+                            .onChange(of: viewModel.destinationLatitudeText) { _, _ in
+                                syncRoutePreviewDestination()
+                            }
+                            .onChange(of: viewModel.destinationLongitudeText) { _, _ in
+                                syncRoutePreviewDestination()
+                            }
+                            .onChange(of: monitoringViewModel.activeSession?.id) { _, _ in
+                                syncRoutePreviewDestination()
+                            }
+
+                            if let routeStatusMessage = routePreviewViewModel.routeStatusMessage {
+                                Text(routeStatusMessage)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
                             }
                         }
-                        .padding()
-                        .background(Color(.secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                        Button(monitoringViewModel.stopButtonTitle) {
-                            monitoringViewModel.stopMonitoring()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(monitoringViewModel.stopButtonTitle == "Stop Monitoring" ? .red : .orange)
-                    }
-                }
+                        softCard {
+                            HStack {
+                                Label("Session History", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                                    .font(.headline.weight(.semibold))
+                                Spacer()
+                                Text("\(monitoringViewModel.historySessions.count)")
+                                    .font(.title2.weight(.bold))
+                                    .fontDesign(.rounded)
+                            }
 
-                Section("Destination Coordinates") {
-                    Button("Pick from Apple Maps") {
-                        isDestinationPickerPresented = true
-                    }
+                            if let latest = monitoringViewModel.historySessions.first {
+                                Text("Latest session: \(Self.historyDateTimeFormatter.string(from: latest.startedAt))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("No monitoring history yet.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
 
-                    if let selectedDestinationName = viewModel.selectedDestinationName {
-                        Text("Selected: \(selectedDestinationName)")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Section("Journey Mode") {
-                    Picker("Mode", selection: $viewModel.selectedJourneyMode) {
-                        ForEach(JourneyMode.allCases) { mode in
-                            Label(mode.title, systemImage: mode.symbolName).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                }
-
-                Section("Route Preview") {
-                    RoutePreviewMapView(
-                        viewModel: routePreviewViewModel,
-                        isMonitoringActive: monitoringViewModel.isMonitoring
-                    )
-                        .frame(height: 220)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .onAppear {
-                            syncRoutePreviewDestination()
-                        }
-                        .onChange(of: viewModel.destinationLatitudeText) { _, _ in
-                            syncRoutePreviewDestination()
-                        }
-                        .onChange(of: viewModel.destinationLongitudeText) { _, _ in
-                            syncRoutePreviewDestination()
-                        }
-                        .onChange(of: monitoringViewModel.activeSession?.id) { _, _ in
-                            syncRoutePreviewDestination()
-                        }
-
-                    if let routeStatusMessage = routePreviewViewModel.routeStatusMessage {
-                        Text(routeStatusMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Section("Wake-up Lead Time (HH:mm)") {
-                    DatePicker(
-                        "Lead Time",
-                        selection: Binding(
-                            get: { viewModel.leadTimePickerDate },
-                            set: { viewModel.updateLeadTime(from: $0) }
-                        ),
-                        displayedComponents: .hourAndMinute
-                    )
-                    .datePickerStyle(.wheel)
-                    .environment(\.locale, Locale(identifier: "en_GB"))
-
-                    Text("Selected lead time: \(viewModel.leadTimeFormatted)")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section("Monitoring History") {
-                    Button {
-                        isHistoryPresented = true
-                    } label: {
-                        HStack {
-                            Text("View Session History")
-                            Spacer()
-                            Text("\(monitoringViewModel.historySessions.count)")
-                                .foregroundStyle(.secondary)
+                            Button("Open History") {
+                                isHistoryPresented = true
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color(red: 0.91, green: 0.93, blue: 0.98), in: Capsule())
                         }
                     }
-
-                    if let latest = monitoringViewModel.historySessions.first {
-                        Text("Latest: \(Self.historyDateTimeFormatter.string(from: latest.startedAt))")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Section {
-                    Button("Start Monitoring") {
-                        viewModel.startMonitoring()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-
-                if let errorMessage = viewModel.errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 28)
                 }
             }
-            .navigationTitle("TravelAssist")
+            .toolbar(.hidden, for: .navigationBar)
             .onAppear {
                 viewModel.onAppear()
                 routePreviewViewModel.onAppear()
             }
             .onDisappear {
                 routePreviewViewModel.onDisappear()
+            }
+            .onChange(of: viewModel.selectedJourneyMode) { _, _ in
+                viewModel.applySelectedJourneyModeToActiveSession()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .fakeCallPresentationRequested)) { notification in
+                guard let request = FakeCallPresentationRequest.from(userInfo: notification.userInfo) else {
+                    return
+                }
+                presentIncomingFakeCall(
+                    callerName: request.callerName,
+                    message: request.message
+                )
             }
             .sheet(isPresented: $isDestinationPickerPresented) {
                 DestinationSearchSheet { name, coordinate in
@@ -176,29 +339,123 @@ struct TripSetupView: View {
                     .presentationDetents([.fraction(0.25), .medium, .large])
                     .presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $isLeadTimePickerExpanded) {
+                LeadTimePickerSheet(viewModel: viewModel)
+            }
+            .fullScreenCover(isPresented: $isFakeCallPresented) {
+                FakeIncomingCallView(
+                    callerName: activeFakeCallCallerName,
+                    isSpeakingPrompt: isFakeCallSpeaking,
+                    onDecline: {
+                        fakeCallFeedback.stop()
+                        fakeCallSpeaker.stop()
+                        isFakeCallSpeaking = false
+                        isFakeCallPresented = false
+                    },
+                    onAccept: {
+                        guard !isFakeCallSpeaking else { return }
+                        fakeCallFeedback.stop()
+                        isFakeCallSpeaking = true
+                        fakeCallSpeaker.speak(activeFakeCallMessage) {
+                            isFakeCallSpeaking = false
+                            isFakeCallPresented = false
+                        }
+                    }
+                )
+                .interactiveDismissDisabled(true)
+                .onAppear {
+                    fakeCallFeedback.start()
+                }
+                .onChange(of: isFakeCallSpeaking) { _, isSpeaking in
+                    if isSpeaking {
+                        fakeCallFeedback.stop()
+                    } else {
+                        fakeCallFeedback.start()
+                    }
+                }
+                .onDisappear {
+                    fakeCallFeedback.stop()
+                }
+            }
+            .fullScreenCover(isPresented: $isRoutePreviewExpanded) {
+                RoutePreviewFullscreenView(
+                    viewModel: routePreviewViewModel,
+                    monitoringViewModel: monitoringViewModel
+                )
+            }
         }
     }
 
+    private var statusAccentColor: Color {
+        monitoringViewModel.isMonitoring ? Color(red: 0.90, green: 0.20, blue: 0.30) : Color(red: 0.19, green: 0.45, blue: 0.93)
+    }
+
+    private var greetingTitle: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        return (6..<20).contains(hour) ? "Stay On Route" : "Sleep Well"
+    }
+
     @ViewBuilder
-    private func keyValueRow(title: String, value: String) -> some View {
+    private func detailRow(title: String, value: String) -> some View {
         HStack {
-            Text(title)
-                .fontWeight(.semibold)
+            Text(title).fontWeight(.semibold)
             Spacer()
             Text(value)
+                .multilineTextAlignment(.trailing)
         }
+        .font(.caption)
     }
 
     @ViewBuilder
-    private func iconValueRow(title: String, symbol: String, value: String) -> some View {
+    private func detailIconRow(title: String, symbol: String, value: String) -> some View {
         HStack(spacing: 8) {
-            Text(title)
-                .fontWeight(.semibold)
+            Text(title).fontWeight(.semibold)
             Spacer()
             Image(systemName: symbol)
                 .foregroundStyle(.secondary)
             Text(value)
+                .multilineTextAlignment(.trailing)
         }
+        .font(.caption)
+    }
+
+    @ViewBuilder
+    private func softCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            content()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.white.opacity(0.95))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 6)
+    }
+
+    @ViewBuilder
+    private func metricPill(title: String, value: String, icon: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption2.weight(.bold))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.78))
+                Text(value)
+                    .font(.caption.weight(.semibold))
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.white.opacity(0.18), in: Capsule())
     }
 
     private func syncRoutePreviewDestination() {
@@ -213,12 +470,173 @@ struct TripSetupView: View {
         )
     }
 
+    private func presentIncomingFakeCall(callerName: String, message: String) {
+        guard !isFakeCallPresented else { return }
+        activeFakeCallCallerName = callerName
+        activeFakeCallMessage = message
+        isFakeCallSpeaking = false
+        isFakeCallPresented = true
+    }
+
     private static let historyDateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter
     }()
+
+    private static let headerDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, d"
+        return formatter
+    }()
+}
+
+@MainActor
+private final class FakeCallSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+    private let synthesizer = AVSpeechSynthesizer()
+    private var completion: (() -> Void)?
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
+
+    func speak(_ text: String, completion: @escaping () -> Void) {
+        self.completion = completion
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        utterance.rate = 0.48
+        synthesizer.stopSpeaking(at: .immediate)
+        synthesizer.speak(utterance)
+    }
+
+    func stop() {
+        completion = nil
+        synthesizer.stopSpeaking(at: .immediate)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        let finished = completion
+        completion = nil
+        finished?()
+    }
+}
+
+private struct FakeIncomingCallView: View {
+    let callerName: String
+    let isSpeakingPrompt: Bool
+    let onDecline: () -> Void
+    let onAccept: () -> Void
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.black, Color(red: 0.10, green: 0.12, blue: 0.18)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                Spacer(minLength: 40)
+
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 96))
+                    .foregroundStyle(.white.opacity(0.92))
+
+                Text(callerName)
+                    .font(.system(size: 34, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Text(isSpeakingPrompt ? "Connected..." : "\(callerName) calling...")
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.85))
+
+                if isSpeakingPrompt {
+                    ProgressView("Playing voice prompt...")
+                        .foregroundStyle(.white.opacity(0.9))
+                        .tint(.white)
+                        .padding(.top, 8)
+                }
+
+                Spacer()
+
+                HStack(spacing: 44) {
+                    Button(action: onDecline) {
+                        VStack(spacing: 8) {
+                            Image(systemName: "phone.down.fill")
+                                .font(.system(size: 26, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 74, height: 74)
+                                .background(Color.red, in: Circle())
+                            Text("Decline")
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: onAccept) {
+                        VStack(spacing: 8) {
+                            Image(systemName: "phone.fill")
+                                .font(.system(size: 26, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 74, height: 74)
+                                .background(Color.green, in: Circle())
+                            Text("Accept")
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSpeakingPrompt)
+                }
+                .padding(.bottom, 38)
+            }
+            .padding(.horizontal, 24)
+        }
+    }
+}
+
+@MainActor
+private final class FakeIncomingCallFeedback: ObservableObject {
+    private var ringTimer: Timer?
+    private var vibrationTimer: Timer?
+    private var isRunning = false
+
+    func start() {
+        guard !isRunning else { return }
+        isRunning = true
+
+        playRingtoneBurst()
+        vibrate()
+
+        ringTimer = Timer.scheduledTimer(withTimeInterval: 2.2, repeats: true) { [weak self] _ in
+            self?.playRingtoneBurst()
+        }
+        vibrationTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: true) { _ in
+            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+        }
+    }
+
+    func stop() {
+        isRunning = false
+        ringTimer?.invalidate()
+        vibrationTimer?.invalidate()
+        ringTimer = nil
+        vibrationTimer = nil
+    }
+
+    private func playRingtoneBurst() {
+        // Lightweight ringtone-like tone sequence while fake call is incoming.
+        AudioServicesPlaySystemSound(1003)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            AudioServicesPlaySystemSound(1003)
+        }
+    }
+
+    private func vibrate() {
+        AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+    }
 }
 
 private struct DestinationSearchSheet: View {
@@ -333,6 +751,45 @@ private struct DestinationSearchSheet: View {
     }
 }
 
+private struct LeadTimePickerSheet: View {
+    @ObservedObject var viewModel: TripSetupViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 14) {
+                DatePicker(
+                    "Lead Time",
+                    selection: Binding(
+                        get: { viewModel.leadTimePickerDate },
+                        set: { viewModel.updateLeadTime(from: $0) }
+                    ),
+                    displayedComponents: .hourAndMinute
+                )
+                .datePickerStyle(.wheel)
+                .environment(\.locale, Locale(identifier: "en_GB"))
+                .labelsHidden()
+
+                Text("Selected: \(viewModel.leadTimeFormatted)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+            .navigationTitle("Lead Time")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.fraction(0.35), .medium])
+        .presentationDragIndicator(.visible)
+    }
+}
+
 private struct MonitoringHistoryBottomSheet: View {
     let sessions: [TripHistorySession]
     @State private var expandedSessions = Set<UUID>()
@@ -378,6 +835,12 @@ private struct MonitoringHistoryBottomSheet: View {
                                     symbol: session.finalDetectedActivity.symbolName,
                                     value: session.finalDetectedActivity.title
                                 )
+                                if !session.activityEvents.isEmpty {
+                                    DisclosureGroup("Activity Flow (\(session.activityEvents.count) events)") {
+                                        ActivityFlowTimelineView(events: session.activityEvents)
+                                            .padding(.top, 4)
+                                    }
+                                }
                                 if !session.gpxFilePath.isEmpty {
                                     historyRow(title: "GPX file", value: session.gpxFilePath)
                                 }
@@ -440,6 +903,67 @@ private struct MonitoringHistoryBottomSheet: View {
         let secs = total % 60
         return String(format: "%02d:%02d:%02d", hours, minutes, secs)
     }
+}
+
+private struct ActivityFlowTimelineView: View {
+    let events: [TripActivityEvent]
+
+    private var sortedEvents: [TripActivityEvent] {
+        events.sorted { $0.timestamp < $1.timestamp }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(sortedEvents.enumerated()), id: \.element.id) { index, event in
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(spacing: 0) {
+                        Circle()
+                            .fill(Color.orange)
+                            .frame(width: 9, height: 9)
+
+                        if index < sortedEvents.count - 1 {
+                            Rectangle()
+                                .fill(Color.orange.opacity(0.45))
+                                .frame(width: 2, height: 34)
+                                .padding(.top, 2)
+                        }
+                    }
+                    .frame(width: 12)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(event.status)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text(Self.eventTimeFormatter.string(from: event.timestamp))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+
+                        if let lat = event.latitude, let lon = event.longitude {
+                            Text(String(format: "%.5f, %.5f", lat, lon))
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Location unavailable")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.bottom, index < sortedEvents.count - 1 ? 2 : 0)
+            }
+        }
+    }
+
+    private static let eventTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        return formatter
+    }()
 }
 
 private final class DestinationSearchViewModel: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
@@ -567,14 +1091,35 @@ private struct RecentDestination: Codable, Identifiable {
 private struct RoutePreviewMapView: View {
     @ObservedObject var viewModel: RoutePreviewViewModel
     let isMonitoringActive: Bool
+    let onExpand: (() -> Void)?
+    let shouldFollowUserWhenMoving: Bool
 
     var body: some View {
         ZStack {
             RoutePreviewUIKitMap(
                 currentCoordinate: viewModel.currentCoordinate,
                 destinationCoordinate: viewModel.destinationCoordinate,
-                routePolyline: viewModel.route?.polyline
+                routePolyline: viewModel.route?.polyline,
+                shouldFollowUserWhenMoving: shouldFollowUserWhenMoving
             )
+
+            if let onExpand {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button(action: onExpand) {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .padding(10)
+                                .background(.ultraThinMaterial, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
+                }
+                .padding(10)
+            }
 
             if viewModel.isLoadingRoute {
                 ProgressView("Loading route...")
@@ -591,10 +1136,130 @@ private struct RoutePreviewMapView: View {
     }
 }
 
+private struct RoutePreviewFullscreenView: View {
+    @ObservedObject var viewModel: RoutePreviewViewModel
+    @ObservedObject var monitoringViewModel: MonitoringViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            RoutePreviewMapView(
+                viewModel: viewModel,
+                isMonitoringActive: monitoringViewModel.isMonitoring,
+                onExpand: nil,
+                shouldFollowUserWhenMoving: monitoringViewModel.isMonitoring
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                HStack {
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 2)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+
+                monitoringDetailsCard
+                    .padding(.horizontal, 16)
+
+                Spacer()
+            }
+        }
+    }
+
+    private var monitoringDetailsCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Trip Monitoring")
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            if monitoringViewModel.isMonitoring {
+                detailRow(title: "Distance", value: monitoringViewModel.distanceText)
+                detailRow(title: "ETA", value: monitoringViewModel.etaText)
+                detailRow(title: "Status", value: monitoringViewModel.statusText)
+                iconDetailRow(
+                    title: "Journey",
+                    symbol: monitoringViewModel.selectedJourneyModeSymbol,
+                    value: monitoringViewModel.selectedJourneyModeText
+                )
+                iconDetailRow(
+                    title: "Detected",
+                    symbol: monitoringViewModel.detectedModeSymbol,
+                    value: monitoringViewModel.detectedModeText
+                )
+
+                if monitoringViewModel.isLoadingInitialSnapshot {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                        Text("Getting live updates...")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.9))
+                        Spacer()
+                    }
+                }
+            } else {
+                Text("No active trip session")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.9))
+                if let message = viewModel.routeStatusMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.darkGray).opacity(0.55))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func detailRow(title: String, value: String) -> some View {
+        HStack {
+            Text(title)
+                .fontWeight(.semibold)
+            Spacer(minLength: 10)
+            Text(value)
+                .multilineTextAlignment(.trailing)
+        }
+        .font(.subheadline)
+        .foregroundStyle(.white)
+    }
+
+    @ViewBuilder
+    private func iconDetailRow(title: String, symbol: String, value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .fontWeight(.semibold)
+            Spacer(minLength: 10)
+            Image(systemName: symbol)
+            Text(value)
+                .multilineTextAlignment(.trailing)
+        }
+        .font(.subheadline)
+        .foregroundStyle(.white)
+    }
+}
+
 private struct RoutePreviewUIKitMap: UIViewRepresentable {
     let currentCoordinate: CLLocationCoordinate2D?
     let destinationCoordinate: CLLocationCoordinate2D?
     let routePolyline: MKPolyline?
+    let shouldFollowUserWhenMoving: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -618,16 +1283,20 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
             mapView: mapView,
             currentCoordinate: currentCoordinate,
             destinationCoordinate: destinationCoordinate,
-            routePolyline: routePolyline
+            routePolyline: routePolyline,
+            shouldFollowUserWhenMoving: shouldFollowUserWhenMoving
         )
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
+        private var lastFollowLocation: CLLocation?
+
         func update(
             mapView: MKMapView,
             currentCoordinate: CLLocationCoordinate2D?,
             destinationCoordinate: CLLocationCoordinate2D?,
-            routePolyline: MKPolyline?
+            routePolyline: MKPolyline?,
+            shouldFollowUserWhenMoving: Bool
         ) {
             mapView.removeAnnotations(mapView.annotations)
             mapView.removeOverlays(mapView.overlays)
@@ -664,8 +1333,36 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
             }
 
             if let routePolyline {
-                mapView.addOverlay(routePolyline, level: .aboveRoads)
-                mergeIntoVisibleRect(routePolyline.boundingMapRect)
+                let splitOverlays = segmentedPolylines(
+                    routePolyline: routePolyline,
+                    currentCoordinate: currentCoordinate
+                )
+                splitOverlays.forEach { overlay in
+                    mapView.addOverlay(overlay, level: .aboveRoads)
+                    mergeIntoVisibleRect(overlay.boundingMapRect)
+                }
+            }
+
+            if shouldFollowUserWhenMoving, let currentCoordinate {
+                let currentLocation = CLLocation(latitude: currentCoordinate.latitude, longitude: currentCoordinate.longitude)
+                let movedEnough: Bool
+                if let lastFollowLocation {
+                    movedEnough = currentLocation.distance(from: lastFollowLocation) >= 4
+                } else {
+                    movedEnough = true
+                }
+                if movedEnough {
+                    lastFollowLocation = currentLocation
+                    let region = MKCoordinateRegion(
+                        center: currentCoordinate,
+                        latitudinalMeters: 900,
+                        longitudinalMeters: 900
+                    )
+                    mapView.setRegion(region, animated: true)
+                }
+                return
+            } else {
+                lastFollowLocation = nil
             }
 
             guard let mapRectToFit, !mapRectToFit.isNull, !mapRectToFit.isEmpty else { return }
@@ -685,11 +1382,74 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
                 return MKOverlayRenderer(overlay: overlay)
             }
             let renderer = MKPolylineRenderer(polyline: polyline)
-            renderer.strokeColor = UIColor.systemOrange
-            renderer.lineWidth = 6
+            if polyline.title == "completed" {
+                renderer.strokeColor = UIColor.systemGreen
+            } else {
+                renderer.strokeColor = UIColor.systemOrange
+            }
+            renderer.lineWidth = 6.5
             renderer.lineCap = .round
             renderer.lineJoin = .round
             return renderer
+        }
+
+        private func segmentedPolylines(
+            routePolyline: MKPolyline,
+            currentCoordinate: CLLocationCoordinate2D?
+        ) -> [MKPolyline] {
+            let coordinates = coordinates(for: routePolyline)
+            guard coordinates.count >= 2 else {
+                return [routePolyline]
+            }
+
+            guard let currentCoordinate else {
+                let full = MKPolyline(coordinates: coordinates, count: coordinates.count)
+                full.title = "remaining"
+                return [full]
+            }
+
+            let currentLocation = CLLocation(latitude: currentCoordinate.latitude, longitude: currentCoordinate.longitude)
+            let nearestIndex = coordinates.enumerated().min { lhs, rhs in
+                let lhsDistance = CLLocation(latitude: lhs.element.latitude, longitude: lhs.element.longitude).distance(from: currentLocation)
+                let rhsDistance = CLLocation(latitude: rhs.element.latitude, longitude: rhs.element.longitude).distance(from: currentLocation)
+                return lhsDistance < rhsDistance
+            }?.offset ?? 0
+
+            var overlays: [MKPolyline] = []
+
+            if nearestIndex > 0 {
+                let completedCoords = Array(coordinates[0...nearestIndex])
+                if completedCoords.count >= 2 {
+                    let completed = MKPolyline(coordinates: completedCoords, count: completedCoords.count)
+                    completed.title = "completed"
+                    overlays.append(completed)
+                }
+            }
+
+            let remainingCoords = Array(coordinates[max(nearestIndex, 0)...])
+            if remainingCoords.count >= 2 {
+                let remaining = MKPolyline(coordinates: remainingCoords, count: remainingCoords.count)
+                remaining.title = "remaining"
+                overlays.append(remaining)
+            }
+
+            if overlays.isEmpty {
+                let fallback = MKPolyline(coordinates: coordinates, count: coordinates.count)
+                fallback.title = "remaining"
+                overlays.append(fallback)
+            }
+
+            return overlays
+        }
+
+        private func coordinates(for polyline: MKPolyline) -> [CLLocationCoordinate2D] {
+            let count = polyline.pointCount
+            var coordinates = Array(
+                repeating: CLLocationCoordinate2D(latitude: 0, longitude: 0),
+                count: count
+            )
+            polyline.getCoordinates(&coordinates, range: NSRange(location: 0, length: count))
+            return coordinates
         }
     }
 }

@@ -11,7 +11,7 @@ struct MonitoringView: View {
 
             VStack(spacing: 10) {
                 keyValueRow(title: "Distance", value: viewModel.distanceText)
-                keyValueRow(title: "ETA", value: viewModel.etaText)
+                keyValueRow(title: "ETA (Hour/Min)", value: viewModel.etaText)
                 keyValueRow(title: "Status", value: viewModel.statusText)
                 iconValueRow(title: "Journey", symbol: viewModel.selectedJourneyModeSymbol, value: viewModel.selectedJourneyModeText)
                 iconValueRow(title: "Detected", symbol: viewModel.detectedModeSymbol, value: viewModel.detectedModeText)

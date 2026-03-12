@@ -6,4 +6,5 @@ enum AppConstants {
     static let destinationRegionIdentifier = "destination-geofence"
     static let arrivalDistanceThresholdMeters: CLLocationDistance = 150
     static let fakeCallNotificationID = "travelassist.fakecall"
+    static let fakeCallNotificationMessage = "This is Travel Assist Support! Your Destination Reached, Thank you!"
 }

@@ -39,6 +39,8 @@ struct TravelWidgetSnapshotDTO: Codable {
     let longitude: Double
     let distanceMeters: Double
     let etaSeconds: Double
+    let detectedActivityRaw: String?
+    let monitoringStateRaw: String?
     let updatedAt: Date
 
     init(snapshot: TravelSnapshot) {
@@ -46,6 +48,8 @@ struct TravelWidgetSnapshotDTO: Codable {
         longitude = snapshot.currentCoordinate.longitude
         distanceMeters = snapshot.distanceMeters
         etaSeconds = snapshot.etaSeconds
+        detectedActivityRaw = snapshot.detectedActivity.rawValue
+        monitoringStateRaw = snapshot.monitoringState.rawValue
         updatedAt = snapshot.updatedAt
     }
 }
@@ -56,6 +60,7 @@ struct TravelWidgetSessionDTO: Codable {
     let destinationLatitude: Double
     let destinationLongitude: Double
     let leadTimeMinutes: Int
+    let selectedJourneyModeRaw: String?
     let startedAt: Date
 
     init(session: TripSession) {
@@ -64,6 +69,7 @@ struct TravelWidgetSessionDTO: Codable {
         destinationLatitude = session.destinationCoordinate.latitude
         destinationLongitude = session.destinationCoordinate.longitude
         leadTimeMinutes = session.leadTimeMinutes
+        selectedJourneyModeRaw = session.selectedJourneyMode.rawValue
         startedAt = session.startedAt
     }
 }

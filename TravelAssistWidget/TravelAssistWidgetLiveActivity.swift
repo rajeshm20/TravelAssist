@@ -15,6 +15,8 @@ struct TravelAssistWidgetAttributes: ActivityAttributes {
         var statusText: String
         var progress: Double
         var distanceText: String
+        var modeSymbolName: String
+        var modeTitle: String
     }
 
     var name: String
@@ -33,7 +35,7 @@ struct TravelAssistWidgetLiveActivity: Widget {
                         .font(.headline)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Image(systemName: "car.side.fill")
+                    Image(systemName: stateSymbolName(context.state.modeSymbolName))
                         .foregroundStyle(.orange)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -49,10 +51,10 @@ struct TravelAssistWidgetLiveActivity: Widget {
                 Text("\(context.state.etaMinutes)m")
                     .font(.caption2)
             } compactTrailing: {
-                Image(systemName: "car.side.fill")
+                Image(systemName: stateSymbolName(context.state.modeSymbolName))
                     .foregroundStyle(.orange)
             } minimal: {
-                Image(systemName: "car.side.fill")
+                Image(systemName: stateSymbolName(context.state.modeSymbolName))
                     .foregroundStyle(.orange)
             }
             .keylineTint(.orange)
@@ -66,10 +68,12 @@ private struct LiveActivityLockScreenView: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
-                (Text("Arriving in ").foregroundStyle(.white.opacity(0.9))
-                + Text("\(max(state.etaMinutes, 0)) mins").foregroundStyle(.orange))
-                    .font(.footnote)
-                    .lineLimit(1)
+                Text(
+                    "Arriving in \(Text("\(max(state.etaMinutes, 0)) mins").foregroundStyle(.orange))"
+                )
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(1)
 
                 Text(state.statusText)
                     .font(.headline)
@@ -93,7 +97,7 @@ private struct LiveActivityLockScreenView: View {
                 Circle()
                     .fill(.orange.opacity(0.20))
                     .frame(width: 48, height: 48)
-                Image(systemName: "car.side.fill")
+                Image(systemName: stateSymbolName(state.modeSymbolName))
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.orange)
             }
@@ -115,4 +119,11 @@ private struct LiveActivityLockScreenView: View {
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
     }
+}
+
+private func stateSymbolName(_ rawSymbol: String) -> String {
+    if rawSymbol.isEmpty {
+        return "location.fill"
+    }
+    return rawSymbol
 }

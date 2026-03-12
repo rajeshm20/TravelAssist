@@ -7,6 +7,9 @@ struct ETAEstimate: Equatable {
 }
 
 protocol ETAEstimator {
-    func estimateETA(from currentLocation: CLLocation, to destination: CLLocationCoordinate2D) async -> ETAEstimate
+    func estimateETA(
+        from currentLocation: CLLocation,
+        to destination: CLLocationCoordinate2D,
+        mode: JourneyMode
+    ) async -> ETAEstimate
 }
-

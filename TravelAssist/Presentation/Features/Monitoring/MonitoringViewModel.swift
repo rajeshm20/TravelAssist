@@ -46,19 +46,26 @@ final class MonitoringViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] session in
                 guard let self else { return }
+                let previousSession = self.activeSession
                 self.activeSession = session
                 self.isMonitoring = (session != nil)
-                self.hasReceivedSnapshotForCurrentSession = false
 
                 if session != nil {
                     self.selectedJourneyModeText = session?.selectedJourneyMode.title ?? "--"
                     self.selectedJourneyModeSymbol = session?.selectedJourneyMode.symbolName ?? "car.fill"
+
+                    if previousSession?.id == session?.id {
+                        return
+                    }
+
+                    self.hasReceivedSnapshotForCurrentSession = false
                     self.stopButtonTitle = "Stop Monitoring"
                     self.distanceText = "--"
                     self.etaText = "--"
                     self.isLoadingInitialSnapshot = true
                     self.startLoadingStatusCycle()
                 } else {
+                    self.hasReceivedSnapshotForCurrentSession = false
                     self.distanceText = "--"
                     self.etaText = "--"
                     self.statusText = "No active trip session."
@@ -100,7 +107,7 @@ final class MonitoringViewModel: ObservableObject {
 
                 if snapshot.distanceMeters <= 0.5 {
                     self.distanceText = "0 m"
-                    self.etaText = "00:00"
+                    self.etaText = "00 hr 00 min"
                     self.statusText = "Reached destination"
                     self.stopButtonTitle = "Stop Monitoring"
                     return
@@ -137,7 +144,7 @@ final class MonitoringViewModel: ObservableObject {
         let totalMinutes = max(Int((etaSeconds / 60.0).rounded()), 0)
         let hours = totalMinutes / 60
         let minutes = totalMinutes % 60
-        return String(format: "%02d:%02d", hours, minutes)
+        return String(format: "%02d hr %02d min", hours, minutes)
     }
 
     private static let timeFormatter: DateFormatter = {

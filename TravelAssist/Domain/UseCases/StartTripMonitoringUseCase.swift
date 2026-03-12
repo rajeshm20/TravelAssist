@@ -16,3 +16,34 @@ struct StartTripMonitoringUseCaseImpl: StartTripMonitoringUseCase {
     }
 }
 
+protocol UpdateJourneyModeUseCase {
+    func execute(mode: JourneyMode)
+}
+
+struct UpdateJourneyModeUseCaseImpl: UpdateJourneyModeUseCase {
+    private let repository: TripMonitoringRepository
+
+    init(repository: TripMonitoringRepository) {
+        self.repository = repository
+    }
+
+    func execute(mode: JourneyMode) {
+        repository.updateJourneyMode(mode)
+    }
+}
+
+protocol RecordTripUserActionUseCase {
+    func execute(status: String)
+}
+
+struct RecordTripUserActionUseCaseImpl: RecordTripUserActionUseCase {
+    private let repository: TripMonitoringRepository
+
+    init(repository: TripMonitoringRepository) {
+        self.repository = repository
+    }
+
+    func execute(status: String) {
+        repository.recordUserAction(status)
+    }
+}

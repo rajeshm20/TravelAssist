@@ -24,14 +24,17 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private let routePointMinimumIntervalSeconds: TimeInterval = 10
     private let intervalCheckSeconds: TimeInterval = 60
     private let idleTimeoutSeconds: TimeInterval = 10 * 60
+    private let maxActivityEventsPerSession = 4000
 
     private var cancellables = Set<AnyCancellable>()
     private var intervalCancellable: AnyCancellable?
     private var estimateTask: Task<Void, Never>?
     private var hasTriggeredFakeCall = false
+    private var hasTriggeredArrivalFakeCall = false
     private var hasReachedDestination = false
     private var liveActivity: Activity<TravelAssistWidgetAttributes>?
     private var currentRoutePoints: [PersistedTrackPoint] = []
+    private var currentActivityEvents: [TripActivityEvent] = []
 
     private var runState: MonitoringRunState = .active
     private var lastMovementDetectedAt: Date?
@@ -84,6 +87,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         }
 
         hasTriggeredFakeCall = false
+        hasTriggeredArrivalFakeCall = false
         hasReachedDestination = false
         runState = .active
         lastMovementDetectedAt = Date()
@@ -99,6 +103,35 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 timestamp: session.startedAt
             )
         ]
+        currentActivityEvents = []
+        recordActivityEvent(
+            status: "Monitoring started (\(session.selectedJourneyMode.title))",
+            latitude: locationService.currentLocation?.coordinate.latitude ?? session.startCoordinate.latitude,
+            longitude: locationService.currentLocation?.coordinate.longitude ?? session.startCoordinate.longitude,
+            timestamp: session.startedAt
+        )
+        recordActivityEvent(
+            status: String(
+                format: "Destination set to %.5f, %.5f",
+                session.destinationCoordinate.latitude,
+                session.destinationCoordinate.longitude
+            ),
+            latitude: session.destinationCoordinate.latitude,
+            longitude: session.destinationCoordinate.longitude,
+            timestamp: session.startedAt
+        )
+        recordActivityEvent(
+            status: "Lead time set to \(String(format: "%02d:%02d", session.leadTimeMinutes / 60, session.leadTimeMinutes % 60))",
+            latitude: locationService.currentLocation?.coordinate.latitude ?? session.startCoordinate.latitude,
+            longitude: locationService.currentLocation?.coordinate.longitude ?? session.startCoordinate.longitude,
+            timestamp: session.startedAt
+        )
+        recordActivityEvent(
+            status: "Journey mode selected: \(session.selectedJourneyMode.title)",
+            latitude: locationService.currentLocation?.coordinate.latitude ?? session.startCoordinate.latitude,
+            longitude: locationService.currentLocation?.coordinate.longitude ?? session.startCoordinate.longitude,
+            timestamp: session.startedAt
+        )
         persistActiveSession(session)
 
         alertService.requestPermissionsIfNeeded()
@@ -122,6 +155,66 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     func stop() {
         let status = resolvedManualStopStatus()
         completeAndStop(status: status, finalSnapshot: snapshotSubject.value)
+    }
+
+    func updateJourneyMode(_ mode: JourneyMode) {
+        guard let activeSession = sessionSubject.value else { return }
+        guard activeSession.selectedJourneyMode != mode else { return }
+
+        let updatedSession = TripSession(
+            id: activeSession.id,
+            startCoordinate: activeSession.startCoordinate,
+            destinationCoordinate: activeSession.destinationCoordinate,
+            leadTimeMinutes: activeSession.leadTimeMinutes,
+            selectedJourneyMode: mode,
+            startedAt: activeSession.startedAt
+        )
+
+        sessionSubject.send(updatedSession)
+
+        if let snapshot = snapshotSubject.value {
+            widgetSyncService.sync(snapshot: snapshot, session: updatedSession)
+            Task { [weak self] in
+                await self?.updateLiveActivity(for: updatedSession, snapshot: snapshot)
+            }
+        }
+
+        let eventLocation = snapshotSubject.value?.currentCoordinate ?? locationService.currentLocation?.coordinate
+        recordActivityEvent(
+            status: "Journey mode changed to \(mode.title)",
+            latitude: eventLocation?.latitude,
+            longitude: eventLocation?.longitude,
+            timestamp: Date()
+        )
+
+        persistActiveSession(updatedSession)
+
+        if let currentLocation = locationService.currentLocation {
+            scheduleEstimate(for: currentLocation, forceRouteEstimate: true)
+        } else if let coordinate = snapshotSubject.value?.currentCoordinate {
+            let fallbackLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            scheduleEstimate(for: fallbackLocation, forceRouteEstimate: true)
+        }
+    }
+
+    func recordUserAction(_ status: String) {
+        guard let activeSession = sessionSubject.value else { return }
+        let coordinate = snapshotSubject.value?.currentCoordinate ?? locationService.currentLocation?.coordinate
+        recordActivityEvent(
+            status: status,
+            latitude: coordinate?.latitude,
+            longitude: coordinate?.longitude,
+            timestamp: Date()
+        )
+        persistActiveSession(activeSession)
+    }
+
+    func triggerFakeCallForTesting() {
+        alertService.requestPermissionsIfNeeded()
+        alertService.scheduleFakeCall(
+            in: 0,
+            message: AppConstants.fakeCallNotificationMessage
+        )
     }
 
     func refreshFromBackground() {
@@ -180,10 +273,10 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         intervalCancellable = nil
     }
 
-    private func scheduleEstimate(for location: CLLocation) {
+    private func scheduleEstimate(for location: CLLocation, forceRouteEstimate: Bool = false) {
         estimateTask?.cancel()
         estimateTask = Task { [weak self] in
-            await self?.process(location: location)
+            await self?.process(location: location, forceRouteEstimate: forceRouteEstimate)
         }
     }
 
@@ -193,7 +286,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         return min(max(estimatedMeters, 600), 4000)
     }
 
-    private func process(location: CLLocation) async {
+    private func process(location: CLLocation, forceRouteEstimate: Bool = false) async {
         guard let session = sessionSubject.value else { return }
         let sessionID = session.id
 
@@ -221,12 +314,16 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             }
         }
 
-        if runState == .atRest, !movedMeaningfully {
+        if runState == .atRest, !movedMeaningfully, !forceRouteEstimate {
             publishRestSnapshot(session: session, location: location)
             return
         }
 
-        let rawEstimate = await etaEstimator.estimateETA(from: location, to: session.destinationCoordinate)
+        let rawEstimate = await etaEstimator.estimateETA(
+            from: location,
+            to: session.destinationCoordinate,
+            mode: session.selectedJourneyMode
+        )
         guard !Task.isCancelled else { return }
         guard let activeSession = sessionSubject.value, activeSession.id == sessionID else { return }
 
@@ -241,6 +338,11 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         if hasReachedDestination || directDistanceMeters <= arrivalThresholdMeters {
             hasReachedDestination = true
             estimate = ETAEstimate(distanceMeters: 0, etaSeconds: 0)
+        } else if forceRouteEstimate {
+            estimate = ETAEstimate(
+                distanceMeters: max(0, rawEstimate.distanceMeters),
+                etaSeconds: max(0, rawEstimate.etaSeconds)
+            )
         } else {
             estimate = stabilizeEstimateIfStationary(rawEstimate, at: location)
         }
@@ -264,7 +366,25 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         snapshotSubject.send(snapshot)
         widgetSyncService.sync(snapshot: snapshot, session: session)
         await updateLiveActivity(for: session, snapshot: snapshot)
+        recordActivityEvent(
+            status: liveActivityStatusText(for: session, snapshot: snapshot),
+            latitude: snapshot.currentCoordinate.latitude,
+            longitude: snapshot.currentCoordinate.longitude,
+            timestamp: snapshot.updatedAt
+        )
         persistActiveSession(session)
+
+        if hasReachedDestination {
+            if !hasTriggeredArrivalFakeCall {
+                hasTriggeredArrivalFakeCall = true
+                alertService.scheduleFakeCall(
+                    in: 0,
+                    message: AppConstants.fakeCallNotificationMessage
+                )
+            }
+            completeAndStop(status: .destinationReached, finalSnapshot: snapshot)
+            return
+        }
 
         let leadTimeSeconds = TimeInterval(session.leadTimeMinutes * 60)
         if !hasTriggeredFakeCall && estimate.etaSeconds <= leadTimeSeconds {
@@ -279,10 +399,6 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 in: 1,
                 message: "You are very close to your destination."
             )
-        }
-
-        if hasReachedDestination {
-            completeAndStop(status: .destinationReached, finalSnapshot: snapshot)
         }
     }
 
@@ -342,6 +458,12 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         runState = .atRest
         locationService.stopStandardUpdates()
         stopIntervalChecks()
+        recordActivityEvent(
+            status: "Idle / At Rest",
+            latitude: latestLocation.coordinate.latitude,
+            longitude: latestLocation.coordinate.longitude,
+            timestamp: Date()
+        )
         publishRestSnapshot(session: session, location: latestLocation)
         persistActiveSession(session)
     }
@@ -353,6 +475,12 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         locationService.startStandardUpdates()
         locationService.requestOneTimeLocation()
         startIntervalChecks()
+        recordActivityEvent(
+            status: "Monitoring resumed",
+            latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude,
+            timestamp: Date()
+        )
 
         if let previousSnapshot = snapshotSubject.value {
             let snapshot = TravelSnapshot(
@@ -387,6 +515,12 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         )
         snapshotSubject.send(snapshot)
         widgetSyncService.sync(snapshot: snapshot, session: session)
+        recordActivityEvent(
+            status: "Idle / At Rest",
+            latitude: snapshot.currentCoordinate.latitude,
+            longitude: snapshot.currentCoordinate.longitude,
+            timestamp: snapshot.updatedAt
+        )
     }
 
     private func arrivalThreshold(for location: CLLocation) -> CLLocationDistance {
@@ -453,6 +587,38 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         currentRoutePoints.append(newPoint)
     }
 
+    private func recordActivityEvent(
+        status: String,
+        latitude: Double?,
+        longitude: Double?,
+        timestamp: Date
+    ) {
+        let trimmedStatus = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedStatus.isEmpty else { return }
+
+        if let last = currentActivityEvents.last {
+            let sameStatus = last.status == trimmedStatus
+            let sameLocation = last.latitude == latitude && last.longitude == longitude
+            let closeInTime = timestamp.timeIntervalSince(last.timestamp) < 2
+            if sameStatus && sameLocation && closeInTime {
+                return
+            }
+        }
+
+        currentActivityEvents.append(
+            TripActivityEvent(
+                status: trimmedStatus,
+                latitude: latitude,
+                longitude: longitude,
+                timestamp: timestamp
+            )
+        )
+
+        if currentActivityEvents.count > maxActivityEventsPerSession {
+            currentActivityEvents.removeFirst(currentActivityEvents.count - maxActivityEventsPerSession)
+        }
+    }
+
     private func resolvedManualStopStatus() -> JourneyCompletionStatus {
         if hasReachedDestination {
             return .journeyFinished
@@ -471,6 +637,13 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         }
 
         let endedAt = Date()
+        let finalCoordinate = finalSnapshot?.currentCoordinate ?? locationService.currentLocation?.coordinate
+        recordActivityEvent(
+            status: status.title,
+            latitude: finalCoordinate?.latitude,
+            longitude: finalCoordinate?.longitude,
+            timestamp: endedAt
+        )
         if let finalSnapshot {
             appendRoutePointIfNeeded(
                 latitude: finalSnapshot.currentCoordinate.latitude,
@@ -501,7 +674,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             gpxFilePath: gpxResult.filePath,
             completionStatus: status,
             selectedJourneyMode: activeSession.selectedJourneyMode,
-            finalDetectedActivity: latestDetectedActivity
+            finalDetectedActivity: latestDetectedActivity,
+            activityEvents: currentActivityEvents
         )
         appendToHistory(historySession)
 
@@ -518,6 +692,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         sessionSubject.send(nil)
         snapshotSubject.send(nil)
         hasTriggeredFakeCall = false
+        hasTriggeredArrivalFakeCall = false
         hasReachedDestination = false
         runState = .active
 
@@ -529,6 +704,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         locationService.stopUpdates()
 
         currentRoutePoints.removeAll(keepingCapacity: false)
+        currentActivityEvents.removeAll(keepingCapacity: false)
         lastMovementDetectedAt = nil
         lastMovementLocation = nil
         latestDetectedActivity = .unknown
@@ -539,11 +715,14 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         if liveActivity != nil { return }
 
         let attributes = TravelAssistWidgetAttributes(name: "TravelAssist")
+        let modePresentation = liveActivityModePresentation(for: session, snapshot: nil)
         let initialState = TravelAssistWidgetAttributes.ContentState(
             etaMinutes: max(session.leadTimeMinutes, 1),
-            statusText: "Trip started",
+            statusText: session.selectedJourneyMode.progressStatusText,
             progress: 0,
-            distanceText: "--"
+            distanceText: "--",
+            modeSymbolName: modePresentation.symbolName,
+            modeTitle: modePresentation.title
         )
 
         do {
@@ -570,11 +749,14 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
 
         let progress = liveActivityProgress(for: session, snapshot: snapshot)
         let statusText = liveActivityStatusText(for: session, snapshot: snapshot)
+        let modePresentation = liveActivityModePresentation(for: session, snapshot: snapshot)
         let state = TravelAssistWidgetAttributes.ContentState(
             etaMinutes: max(snapshot.etaMinutes, 0),
             statusText: statusText,
             progress: progress,
-            distanceText: liveActivityDistanceText(snapshot.distanceMeters)
+            distanceText: liveActivityDistanceText(snapshot.distanceMeters),
+            modeSymbolName: modePresentation.symbolName,
+            modeTitle: modePresentation.title
         )
         let content = ActivityContent(
             state: state,
@@ -605,15 +787,21 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
 
     private func liveActivityStatusText(for session: TripSession, snapshot: TravelSnapshot) -> String {
         if snapshot.monitoringState == .atRest {
-            return "At rest"
+            return "Idle / At Rest"
         }
         if snapshot.distanceMeters <= AppConstants.arrivalDistanceThresholdMeters {
             return "Reached destination"
         }
-        if snapshot.etaMinutes <= session.leadTimeMinutes {
-            return "Almost there"
+        switch snapshot.detectedActivity {
+        case .walking, .running, .climbing, .stationary:
+            return snapshot.detectedActivity.progressStatusText
+        case .unknown:
+            break
         }
-        return "On the way"
+        if snapshot.etaMinutes <= session.leadTimeMinutes {
+            return "Arriving soon"
+        }
+        return session.selectedJourneyMode.progressStatusText
     }
 
     private func liveActivityDistanceText(_ distanceMeters: CLLocationDistance) -> String {
@@ -621,6 +809,28 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             return "\(Int(distanceMeters)) m remaining"
         }
         return String(format: "%.1f km remaining", distanceMeters / 1000)
+    }
+
+    private func liveActivityModePresentation(
+        for session: TripSession,
+        snapshot: TravelSnapshot?
+    ) -> (symbolName: String, title: String) {
+        guard let snapshot else {
+            return (session.selectedJourneyMode.symbolName, session.selectedJourneyMode.title)
+        }
+
+        if snapshot.monitoringState == .atRest {
+            return ("pause.circle", "At Rest")
+        }
+
+        switch snapshot.detectedActivity {
+        case .walking, .running, .climbing:
+            return (snapshot.detectedActivity.symbolName, snapshot.detectedActivity.title)
+        case .stationary:
+            return ("pause.circle", "At Rest")
+        case .unknown:
+            return (session.selectedJourneyMode.symbolName, session.selectedJourneyMode.title)
+        }
     }
 
     private func persistActiveSession(_ session: TripSession) {
@@ -635,6 +845,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             selectedJourneyMode: session.selectedJourneyMode,
             startedAt: session.startedAt,
             routePoints: currentRoutePoints,
+            activityEvents: currentActivityEvents,
             runState: runState,
             lastMovementDetectedAt: lastMovementDetectedAt,
             lastMovementLatitude: lastMovementLocation?.coordinate.latitude,
@@ -666,6 +877,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         )
 
         currentRoutePoints = persisted.routePoints
+        currentActivityEvents = persisted.activityEvents ?? []
         runState = persisted.runState
         lastMovementDetectedAt = persisted.lastMovementDetectedAt
         latestDetectedActivity = persisted.latestDetectedActivity
@@ -709,12 +921,19 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             return nil
         }
 
+        let detectedActivity = dto.detectedActivityRaw
+            .flatMap(DetectedJourneyActivity.init(rawValue:))
+            ?? .unknown
+        let snapshotRunState = dto.monitoringStateRaw
+            .flatMap(MonitoringRunState.init(rawValue:))
+            ?? runState
+
         return TravelSnapshot(
             currentCoordinate: CLLocationCoordinate2D(latitude: dto.latitude, longitude: dto.longitude),
             distanceMeters: dto.distanceMeters,
             etaSeconds: dto.etaSeconds,
-            detectedActivity: .unknown,
-            monitoringState: runState,
+            detectedActivity: detectedActivity,
+            monitoringState: snapshotRunState,
             updatedAt: dto.updatedAt
         )
     }
@@ -841,6 +1060,7 @@ private struct PersistedActiveSession: Codable {
     let selectedJourneyMode: JourneyMode
     let startedAt: Date
     let routePoints: [PersistedTrackPoint]
+    let activityEvents: [TripActivityEvent]?
     let runState: MonitoringRunState
     let lastMovementDetectedAt: Date?
     let lastMovementLatitude: Double?
@@ -862,6 +1082,7 @@ private struct PersistedHistorySession: Codable {
     let completionStatus: JourneyCompletionStatus
     let selectedJourneyMode: JourneyMode
     let finalDetectedActivity: DetectedJourneyActivity
+    let activityEvents: [TripActivityEvent]?
 
     init(_ session: TripHistorySession) {
         id = session.id
@@ -877,6 +1098,7 @@ private struct PersistedHistorySession: Codable {
         completionStatus = session.completionStatus
         selectedJourneyMode = session.selectedJourneyMode
         finalDetectedActivity = session.finalDetectedActivity
+        activityEvents = session.activityEvents
     }
 
     var domain: TripHistorySession {
@@ -893,7 +1115,8 @@ private struct PersistedHistorySession: Codable {
             gpxFilePath: gpxFilePath,
             completionStatus: completionStatus,
             selectedJourneyMode: selectedJourneyMode,
-            finalDetectedActivity: finalDetectedActivity
+            finalDetectedActivity: finalDetectedActivity,
+            activityEvents: activityEvents ?? []
         )
     }
 }
@@ -904,6 +1127,8 @@ struct TravelAssistWidgetAttributes: ActivityAttributes {
         var statusText: String
         var progress: Double
         var distanceText: String
+        var modeSymbolName: String
+        var modeTitle: String
     }
 
     var name: String

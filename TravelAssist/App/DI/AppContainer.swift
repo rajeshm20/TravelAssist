@@ -8,7 +8,10 @@ final class AppContainer {
     private let buildTripSessionUseCase: BuildTripSessionUseCase
     private let prepareCurrentLocationUseCase: PrepareCurrentLocationUseCase
     private let startUseCase: StartTripMonitoringUseCase
+    private let updateJourneyModeUseCase: UpdateJourneyModeUseCase
+    private let recordTripUserActionUseCase: RecordTripUserActionUseCase
     private let stopUseCase: StopTripMonitoringUseCase
+    private let triggerTestFakeCallUseCase: TriggerTestFakeCallUseCase
     private let observeUseCase: ObserveTripStateUseCase
 
     init() {
@@ -32,7 +35,10 @@ final class AppContainer {
         self.buildTripSessionUseCase = BuildTripSessionUseCaseImpl(locationProvider: currentLocationProvider)
         self.prepareCurrentLocationUseCase = PrepareCurrentLocationUseCaseImpl(locationProvider: currentLocationProvider)
         self.startUseCase = StartTripMonitoringUseCaseImpl(repository: repository)
+        self.updateJourneyModeUseCase = UpdateJourneyModeUseCaseImpl(repository: repository)
+        self.recordTripUserActionUseCase = RecordTripUserActionUseCaseImpl(repository: repository)
         self.stopUseCase = StopTripMonitoringUseCaseImpl(repository: repository)
+        self.triggerTestFakeCallUseCase = TriggerTestFakeCallUseCaseImpl(repository: repository)
         self.observeUseCase = ObserveTripStateUseCaseImpl(repository: repository)
 
         // Register once during container creation so scheduler is ready before any restore flow schedules refresh.
@@ -51,7 +57,10 @@ final class AppContainer {
         TripSetupViewModel(
             buildTripSessionUseCase: buildTripSessionUseCase,
             prepareCurrentLocationUseCase: prepareCurrentLocationUseCase,
-            startUseCase: startUseCase
+            startUseCase: startUseCase,
+            updateJourneyModeUseCase: updateJourneyModeUseCase,
+            recordTripUserActionUseCase: recordTripUserActionUseCase,
+            triggerTestFakeCallUseCase: triggerTestFakeCallUseCase
         )
     }
 

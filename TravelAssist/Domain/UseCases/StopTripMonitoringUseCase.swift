@@ -16,3 +16,18 @@ struct StopTripMonitoringUseCaseImpl: StopTripMonitoringUseCase {
     }
 }
 
+protocol TriggerTestFakeCallUseCase {
+    func execute()
+}
+
+struct TriggerTestFakeCallUseCaseImpl: TriggerTestFakeCallUseCase {
+    private let repository: TripMonitoringRepository
+
+    init(repository: TripMonitoringRepository) {
+        self.repository = repository
+    }
+
+    func execute() {
+        repository.triggerFakeCallForTesting()
+    }
+}
