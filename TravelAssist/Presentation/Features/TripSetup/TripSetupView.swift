@@ -211,9 +211,10 @@ struct TripSetupView: View {
                                 Text(viewModel.selectedJourneyMode.title)
                                     .font(.title3.weight(.bold))
                                     .fontDesign(.rounded)
+                                    .dynamicTypeSize(.small)
                                 Picker("Mode", selection: $viewModel.selectedJourneyMode) {
                                     ForEach(JourneyMode.allCases) { mode in
-                                        Label(mode.title, systemImage: mode.symbolName).tag(mode)
+                                        Label(/*mode.title*/"", systemImage: mode.symbolName).tag(mode)
                                     }
                                 }
                                 .pickerStyle(.menu)

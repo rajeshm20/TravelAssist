@@ -7,9 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		611C2D492F6321A400445357 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 611C2D482F6321A400445357 /* Assets.xcassets */; };
 		61D0CE022F5E788D001C3CB7 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61D0CE012F5E788C001C3CB7 /* WidgetKit.framework */; };
 		61D0CE042F5E788D001C3CB7 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61D0CE032F5E788D001C3CB7 /* SwiftUI.framework */; };
 		61D0CE152F5E788E001C3CB7 /* TravelAssistWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 61D0CDFF2F5E788C001C3CB7 /* TravelAssistWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		61D7B6142F64800800B1BCFF /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 61D7B6132F64800800B1BCFF /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,12 +53,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		611C2D482F6321A400445357 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		61B9B7F52F5DE7CF00BEB79F /* TravelAssist.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TravelAssist.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		61B9B8022F5DE7D000BEB79F /* TravelAssistTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TravelAssistTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		61B9B80C2F5DE7D000BEB79F /* TravelAssistUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TravelAssistUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		61D0CDFF2F5E788C001C3CB7 /* TravelAssistWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TravelAssistWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		61D0CE012F5E788C001C3CB7 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		61D0CE032F5E788D001C3CB7 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		61D7B6132F64800800B1BCFF /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -132,6 +136,8 @@
 		61B9B7EC2F5DE7CF00BEB79F = {
 			isa = PBXGroup;
 			children = (
+				611C2D482F6321A400445357 /* Assets.xcassets */,
+				61D7B6132F64800800B1BCFF /* README.md */,
 				61B9B7F72F5DE7CF00BEB79F /* TravelAssist */,
 				61B9B8052F5DE7D000BEB79F /* TravelAssistTests */,
 				61B9B80F2F5DE7D000BEB79F /* TravelAssistUITests */,
@@ -309,6 +315,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				61D7B6142F64800800B1BCFF /* README.md in Resources */,
+				611C2D492F6321A400445357 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -513,17 +521,18 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = TravelAssist.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 4TTDUWKTNV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = TravelAssistInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = TravelAssistant;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssistant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -542,17 +551,18 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = TravelAssist.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 4TTDUWKTNV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = TravelAssistInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = TravelAssistant;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssistant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -655,7 +665,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = TravelAssistWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 4TTDUWKTNV;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TravelAssistWidget/Info.plist;
@@ -667,7 +677,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssist.TravelAssistWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssistant.TravelAssisttantWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -686,7 +696,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = TravelAssistWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 4TTDUWKTNV;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TravelAssistWidget/Info.plist;
@@ -698,7 +708,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssist.TravelAssistWidget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssistant.TravelAssisttantWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

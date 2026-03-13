@@ -128,6 +128,21 @@ final class TripSetupViewModel: ObservableObject {
         triggerTestFakeCallUseCase.execute()
     }
 
+    func recordShareEvent(name: String, details: String? = nil) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+
+        let payload: String
+        if let details {
+            let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
+            payload = trimmedDetails.isEmpty ? trimmedName : "\(trimmedName) | \(trimmedDetails)"
+        } else {
+            payload = trimmedName
+        }
+
+        recordTripUserActionUseCase.execute(status: payload)
+    }
+
     private func resolvedLeadTimeMinutes() -> Int {
         (selectedLeadHours * 60) + selectedLeadMinutes
     }
