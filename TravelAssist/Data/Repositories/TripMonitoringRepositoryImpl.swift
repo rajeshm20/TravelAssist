@@ -7,6 +7,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private enum StorageKeys {
         static let activeSession = "trip.active.session"
         static let historySessions = "trip.history.sessions"
+        static let journeyPlanItems = "trip.journey.plan"
     }
 
     private let locationService: LocationService
@@ -22,9 +23,12 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private let maximumArrivalClampMeters: CLLocationDistance = 45
     private let routePointMinimumDistanceMeters: CLLocationDistance = 5
     private let routePointMinimumIntervalSeconds: TimeInterval = 10
-    private let intervalCheckSeconds: TimeInterval = 60
+    private let intervalCheckSeconds: TimeInterval = 180
     private let idleTimeoutSeconds: TimeInterval = 10 * 60
     private let maxActivityEventsPerSession = 4000
+    private let liveActivityMinimumUpdateIntervalSeconds: TimeInterval = 60
+    private let liveActivityMinimumProgressDelta = 0.02
+    private let journeyPlanMatchDistanceMeters: CLLocationDistance = 150
 
     private var cancellables = Set<AnyCancellable>()
     private var intervalCancellable: AnyCancellable?
@@ -40,10 +44,13 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private var lastMovementDetectedAt: Date?
     private var lastMovementLocation: CLLocation?
     private var latestDetectedActivity: DetectedJourneyActivity = .unknown
+    private var lastLiveActivityState: TravelAssistWidgetAttributes.ContentState?
+    private var lastLiveActivityUpdateAt: Date?
 
     private let sessionSubject = CurrentValueSubject<TripSession?, Never>(nil)
     private let snapshotSubject = CurrentValueSubject<TravelSnapshot?, Never>(nil)
     private let historySubject = CurrentValueSubject<[TripHistorySession], Never>([])
+    private let journeyPlanSubject = CurrentValueSubject<[JourneyPlanItem], Never>([])
 
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -58,6 +65,10 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
 
     var historyPublisher: AnyPublisher<[TripHistorySession], Never> {
         historySubject.eraseToAnyPublisher()
+    }
+
+    var journeyPlanPublisher: AnyPublisher<[JourneyPlanItem], Never> {
+        journeyPlanSubject.eraseToAnyPublisher()
     }
 
     init(
@@ -77,6 +88,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         bindLocationUpdates()
         bindAuthorizationUpdates()
         loadPersistedHistory()
+        loadPersistedJourneyPlan()
         restoreActiveSessionIfNeeded()
     }
 
@@ -86,6 +98,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             completeAndStop(status: previousStatus, finalSnapshot: snapshotSubject.value)
         }
 
+        let resolvedSession = resolvedSessionForStart(session)
+
         hasTriggeredFakeCall = false
         hasTriggeredArrivalFakeCall = false
         hasReachedDestination = false
@@ -94,45 +108,48 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         lastMovementLocation = locationService.currentLocation
         latestDetectedActivity = .unknown
 
-        sessionSubject.send(session)
+        sessionSubject.send(resolvedSession)
+        if let journeyPlanItemID = resolvedSession.journeyPlanItemID {
+            updateJourneyPlanItemStatus(id: journeyPlanItemID, status: .inProgress)
+        }
         snapshotSubject.send(nil)
         currentRoutePoints = [
             PersistedTrackPoint(
-                latitude: session.startCoordinate.latitude,
-                longitude: session.startCoordinate.longitude,
-                timestamp: session.startedAt
+                latitude: resolvedSession.startCoordinate.latitude,
+                longitude: resolvedSession.startCoordinate.longitude,
+                timestamp: resolvedSession.startedAt
             )
         ]
         currentActivityEvents = []
         recordActivityEvent(
-            status: "Monitoring started (\(session.selectedJourneyMode.title))",
-            latitude: locationService.currentLocation?.coordinate.latitude ?? session.startCoordinate.latitude,
-            longitude: locationService.currentLocation?.coordinate.longitude ?? session.startCoordinate.longitude,
-            timestamp: session.startedAt
+            status: "Monitoring started (\(resolvedSession.selectedJourneyMode.title))",
+            latitude: locationService.currentLocation?.coordinate.latitude ?? resolvedSession.startCoordinate.latitude,
+            longitude: locationService.currentLocation?.coordinate.longitude ?? resolvedSession.startCoordinate.longitude,
+            timestamp: resolvedSession.startedAt
         )
         recordActivityEvent(
             status: String(
                 format: "Destination set to %.5f, %.5f",
-                session.destinationCoordinate.latitude,
-                session.destinationCoordinate.longitude
+                resolvedSession.destinationCoordinate.latitude,
+                resolvedSession.destinationCoordinate.longitude
             ),
-            latitude: session.destinationCoordinate.latitude,
-            longitude: session.destinationCoordinate.longitude,
-            timestamp: session.startedAt
+            latitude: resolvedSession.destinationCoordinate.latitude,
+            longitude: resolvedSession.destinationCoordinate.longitude,
+            timestamp: resolvedSession.startedAt
         )
         recordActivityEvent(
-            status: "Lead time set to \(String(format: "%02d:%02d", session.leadTimeMinutes / 60, session.leadTimeMinutes % 60))",
-            latitude: locationService.currentLocation?.coordinate.latitude ?? session.startCoordinate.latitude,
-            longitude: locationService.currentLocation?.coordinate.longitude ?? session.startCoordinate.longitude,
-            timestamp: session.startedAt
+            status: "Lead time set to \(String(format: "%02d:%02d", resolvedSession.leadTimeMinutes / 60, resolvedSession.leadTimeMinutes % 60))",
+            latitude: locationService.currentLocation?.coordinate.latitude ?? resolvedSession.startCoordinate.latitude,
+            longitude: locationService.currentLocation?.coordinate.longitude ?? resolvedSession.startCoordinate.longitude,
+            timestamp: resolvedSession.startedAt
         )
         recordActivityEvent(
-            status: "Journey mode selected: \(session.selectedJourneyMode.title)",
-            latitude: locationService.currentLocation?.coordinate.latitude ?? session.startCoordinate.latitude,
-            longitude: locationService.currentLocation?.coordinate.longitude ?? session.startCoordinate.longitude,
-            timestamp: session.startedAt
+            status: "Journey mode selected: \(resolvedSession.selectedJourneyMode.title)",
+            latitude: locationService.currentLocation?.coordinate.latitude ?? resolvedSession.startCoordinate.latitude,
+            longitude: locationService.currentLocation?.coordinate.longitude ?? resolvedSession.startCoordinate.longitude,
+            timestamp: resolvedSession.startedAt
         )
-        persistActiveSession(session)
+        persistActiveSession(resolvedSession)
 
         alertService.requestPermissionsIfNeeded()
         locationService.requestPermissionsIfNeeded()
@@ -140,10 +157,12 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         locationService.startSignificantUpdates()
         locationService.requestOneTimeLocation()
         locationService.startMonitoringDestination(
-            coordinate: session.destinationCoordinate,
-            radius: destinationRegionRadius(for: session.leadTimeMinutes)
+            coordinate: resolvedSession.destinationCoordinate,
+            radius: destinationRegionRadius(for: resolvedSession.leadTimeMinutes)
         )
-        startLiveActivity(for: session)
+        widgetSyncService.sync(snapshot: nil, session: resolvedSession)
+        widgetSyncService.syncJourneyPlan(journeyPlanSubject.value)
+        startLiveActivity(for: resolvedSession)
         startIntervalChecks()
         backgroundTaskScheduler.scheduleRefresh()
 
@@ -167,6 +186,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             destinationCoordinate: activeSession.destinationCoordinate,
             leadTimeMinutes: activeSession.leadTimeMinutes,
             selectedJourneyMode: mode,
+            journeyPlanItemID: activeSession.journeyPlanItemID,
             startedAt: activeSession.startedAt
         )
 
@@ -177,6 +197,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             Task { [weak self] in
                 await self?.updateLiveActivity(for: updatedSession, snapshot: snapshot)
             }
+        } else {
+            widgetSyncService.sync(snapshot: nil, session: updatedSession)
         }
 
         let eventLocation = snapshotSubject.value?.currentCoordinate ?? locationService.currentLocation?.coordinate
@@ -207,6 +229,33 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             timestamp: Date()
         )
         persistActiveSession(activeSession)
+    }
+
+    func addJourneyPlanItem(_ item: JourneyPlanItem) {
+        var updated = journeyPlanSubject.value
+        updated.removeAll { existing in
+            abs(existing.latitude - item.latitude) < 0.00001 &&
+            abs(existing.longitude - item.longitude) < 0.00001 &&
+            abs(existing.plannedStartAt.timeIntervalSince(item.plannedStartAt)) < 60
+        }
+        updated.append(item)
+        updated.sort { lhs, rhs in
+            if lhs.plannedStartAt == rhs.plannedStartAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.plannedStartAt < rhs.plannedStartAt
+        }
+        saveJourneyPlanItems(updated)
+    }
+
+    func replaceJourneyPlanItems(_ items: [JourneyPlanItem]) {
+        let sortedItems = items.sorted { lhs, rhs in
+            if lhs.plannedStartAt == rhs.plannedStartAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.plannedStartAt < rhs.plannedStartAt
+        }
+        saveJourneyPlanItems(sortedItems)
     }
 
     func triggerFakeCallForTesting() {
@@ -679,12 +728,23 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         )
         appendToHistory(historySession)
 
+        let nextSession = resolveNextPlannedSessionAfterCompletion(
+            activeSession: activeSession,
+            completionStatus: status,
+            finalSnapshot: finalSnapshot,
+            endedAt: endedAt
+        )
+
         clearRuntimeState()
         clearPersistedActiveSession()
-        widgetSyncService.clear()
+        widgetSyncService.clearActiveTrip()
 
         Task { [weak self] in
             await self?.endLiveActivity()
+        }
+
+        if let nextSession {
+            start(session: nextSession)
         }
     }
 
@@ -708,6 +768,50 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         lastMovementDetectedAt = nil
         lastMovementLocation = nil
         latestDetectedActivity = .unknown
+        lastLiveActivityState = nil
+        lastLiveActivityUpdateAt = nil
+    }
+
+    private func resolvedSessionForStart(_ session: TripSession) -> TripSession {
+        guard session.journeyPlanItemID == nil else { return session }
+        guard let matchedItem = matchingJourneyPlanItem(for: session) else { return session }
+
+        return TripSession(
+            id: session.id,
+            startCoordinate: session.startCoordinate,
+            destinationCoordinate: session.destinationCoordinate,
+            leadTimeMinutes: session.leadTimeMinutes,
+            selectedJourneyMode: session.selectedJourneyMode,
+            journeyPlanItemID: matchedItem.id,
+            startedAt: session.startedAt
+        )
+    }
+
+    private func matchingJourneyPlanItem(for session: TripSession) -> JourneyPlanItem? {
+        let destination = CLLocation(
+            latitude: session.destinationCoordinate.latitude,
+            longitude: session.destinationCoordinate.longitude
+        )
+
+        return journeyPlanSubject.value
+            .filter { item in
+                item.status == .started &&
+                item.selectedJourneyMode == session.selectedJourneyMode &&
+                Calendar.current.isDate(item.plannedStartAt, inSameDayAs: session.startedAt)
+            }
+            .filter { item in
+                let itemLocation = CLLocation(latitude: item.latitude, longitude: item.longitude)
+                return itemLocation.distance(from: destination) <= journeyPlanMatchDistanceMeters
+            }
+            .sorted { lhs, rhs in
+                let lhsTimeDelta = abs(lhs.plannedStartAt.timeIntervalSince(session.startedAt))
+                let rhsTimeDelta = abs(rhs.plannedStartAt.timeIntervalSince(session.startedAt))
+                if lhsTimeDelta == rhsTimeDelta {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhsTimeDelta < rhsTimeDelta
+            }
+            .first
     }
 
     private func startLiveActivity(for session: TripSession) {
@@ -735,6 +839,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 content: content,
                 pushType: nil
             )
+            lastLiveActivityState = initialState
+            lastLiveActivityUpdateAt = Date()
         } catch {
             liveActivity = nil
         }
@@ -758,17 +864,43 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             modeSymbolName: modePresentation.symbolName,
             modeTitle: modePresentation.title
         )
+        guard shouldUpdateLiveActivity(with: state) else { return }
         let content = ActivityContent(
             state: state,
             staleDate: Date().addingTimeInterval(120)
         )
         await liveActivity.update(content)
+        lastLiveActivityState = state
+        lastLiveActivityUpdateAt = Date()
     }
 
     private func endLiveActivity() async {
         guard let liveActivity else { return }
         await liveActivity.end(dismissalPolicy: .immediate)
         self.liveActivity = nil
+        lastLiveActivityState = nil
+        lastLiveActivityUpdateAt = nil
+    }
+
+    private func shouldUpdateLiveActivity(with state: TravelAssistWidgetAttributes.ContentState) -> Bool {
+        guard let previousState = lastLiveActivityState,
+              let lastLiveActivityUpdateAt else {
+            return true
+        }
+
+        if state.statusText != previousState.statusText || state.modeTitle != previousState.modeTitle {
+            return true
+        }
+
+        if state.etaMinutes != previousState.etaMinutes {
+            return true
+        }
+
+        if abs(state.progress - previousState.progress) >= liveActivityMinimumProgressDelta {
+            return true
+        }
+
+        return Date().timeIntervalSince(lastLiveActivityUpdateAt) >= liveActivityMinimumUpdateIntervalSeconds
     }
 
     private func liveActivityProgress(for session: TripSession, snapshot: TravelSnapshot) -> Double {
@@ -843,6 +975,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             destinationLongitude: session.destinationCoordinate.longitude,
             leadTimeMinutes: session.leadTimeMinutes,
             selectedJourneyMode: session.selectedJourneyMode,
+            journeyPlanItemID: session.journeyPlanItemID,
             startedAt: session.startedAt,
             routePoints: currentRoutePoints,
             activityEvents: currentActivityEvents,
@@ -873,6 +1006,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             destinationCoordinate: CLLocationCoordinate2D(latitude: persisted.destinationLatitude, longitude: persisted.destinationLongitude),
             leadTimeMinutes: persisted.leadTimeMinutes,
             selectedJourneyMode: persisted.selectedJourneyMode,
+            journeyPlanItemID: persisted.journeyPlanItemID,
             startedAt: persisted.startedAt
         )
 
@@ -890,6 +1024,12 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         if let persistedSnapshot = loadPersistedSnapshot(with: runState) {
             snapshotSubject.send(persistedSnapshot)
         }
+
+        widgetSyncService.sync(
+            snapshot: snapshotSubject.value,
+            session: restoredSession
+        )
+        widgetSyncService.syncJourneyPlan(journeyPlanSubject.value)
 
         locationService.requestPermissionsIfNeeded()
         if runState == .active {
@@ -959,11 +1099,194 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         historySubject.send(persisted.map { $0.domain })
     }
 
+    private func loadPersistedJourneyPlan() {
+        guard let defaults,
+              let data = defaults.data(forKey: StorageKeys.journeyPlanItems),
+              let persisted = try? decoder.decode([JourneyPlanItem].self, from: data) else {
+            journeyPlanSubject.send([])
+            return
+        }
+
+        journeyPlanSubject.send(
+            persisted.sorted { lhs, rhs in
+                if lhs.plannedStartAt == rhs.plannedStartAt {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.plannedStartAt < rhs.plannedStartAt
+            }
+        )
+    }
+
     private func persistHistory(_ sessions: [TripHistorySession]) {
         guard let defaults else { return }
         let persisted = sessions.map(PersistedHistorySession.init)
         guard let data = try? encoder.encode(persisted) else { return }
         defaults.set(data, forKey: StorageKeys.historySessions)
+    }
+
+    private func persistJourneyPlan(_ items: [JourneyPlanItem]) {
+        guard let defaults else { return }
+        guard let data = try? encoder.encode(items) else { return }
+        defaults.set(data, forKey: StorageKeys.journeyPlanItems)
+    }
+
+    private func saveJourneyPlanItems(_ items: [JourneyPlanItem]) {
+        journeyPlanSubject.send(items)
+        syncActiveSessionIfNeeded(with: items)
+        persistJourneyPlan(items)
+        widgetSyncService.syncJourneyPlan(items)
+    }
+
+    private func syncActiveSessionIfNeeded(with items: [JourneyPlanItem]) {
+        guard let activeSession = sessionSubject.value,
+              let journeyPlanItemID = activeSession.journeyPlanItemID,
+              let updatedItem = items.first(where: { $0.id == journeyPlanItemID }) else {
+            return
+        }
+
+        let updatedDestination = CLLocationCoordinate2D(
+            latitude: updatedItem.latitude,
+            longitude: updatedItem.longitude
+        )
+
+        let hasDestinationChanged =
+            abs(activeSession.destinationCoordinate.latitude - updatedDestination.latitude) >= 0.000001 ||
+            abs(activeSession.destinationCoordinate.longitude - updatedDestination.longitude) >= 0.000001
+        let hasJourneyModeChanged = activeSession.selectedJourneyMode != updatedItem.selectedJourneyMode
+        let hasLeadTimeChanged = activeSession.leadTimeMinutes != updatedItem.leadTimeMinutes
+
+        guard hasDestinationChanged || hasJourneyModeChanged || hasLeadTimeChanged else {
+            return
+        }
+
+        let updatedSession = TripSession(
+            id: activeSession.id,
+            startCoordinate: activeSession.startCoordinate,
+            destinationCoordinate: updatedDestination,
+            leadTimeMinutes: updatedItem.leadTimeMinutes,
+            selectedJourneyMode: updatedItem.selectedJourneyMode,
+            journeyPlanItemID: activeSession.journeyPlanItemID,
+            startedAt: activeSession.startedAt
+        )
+
+        sessionSubject.send(updatedSession)
+        persistActiveSession(updatedSession)
+        locationService.startMonitoringDestination(
+            coordinate: updatedSession.destinationCoordinate,
+            radius: destinationRegionRadius(for: updatedSession.leadTimeMinutes)
+        )
+
+        if let snapshot = snapshotSubject.value {
+            widgetSyncService.sync(snapshot: snapshot, session: updatedSession)
+            Task { [weak self] in
+                await self?.updateLiveActivity(for: updatedSession, snapshot: snapshot)
+            }
+        } else {
+            widgetSyncService.sync(snapshot: nil, session: updatedSession)
+        }
+
+        if let currentLocation = locationService.currentLocation {
+            scheduleEstimate(for: currentLocation, forceRouteEstimate: true)
+        } else if let coordinate = snapshotSubject.value?.currentCoordinate {
+            let fallbackLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            scheduleEstimate(for: fallbackLocation, forceRouteEstimate: true)
+        }
+    }
+
+    private func updateJourneyPlanItemStatus(id: UUID, status: JourneyPlanStatus) {
+        let updated = journeyPlanSubject.value.map { item in
+            guard item.id == id else { return item }
+            return JourneyPlanItem(
+                id: item.id,
+                title: item.title,
+                subtitle: item.subtitle,
+                startLatitude: item.startLatitude,
+                startLongitude: item.startLongitude,
+                latitude: item.latitude,
+                longitude: item.longitude,
+                plannedStartAt: item.plannedStartAt,
+                approximateEndAt: item.approximateEndAt,
+                estimatedTravelDurationSeconds: item.estimatedTravelDurationSeconds,
+                selectedJourneyMode: item.selectedJourneyMode,
+                leadTimeMinutes: item.leadTimeMinutes,
+                status: status,
+                createdAt: item.createdAt
+            )
+        }
+        saveJourneyPlanItems(updated)
+    }
+
+    private func resolveNextPlannedSessionAfterCompletion(
+        activeSession: TripSession,
+        completionStatus: JourneyCompletionStatus,
+        finalSnapshot: TravelSnapshot?,
+        endedAt: Date
+    ) -> TripSession? {
+        finalizeJourneyPlanItemStatus(for: activeSession, completionStatus: completionStatus)
+
+        guard shouldAdvanceJourneyPlan(after: completionStatus),
+              shouldAutoStartNextPlannedSession(at: endedAt) else {
+            return nil
+        }
+
+        let nextItem = journeyPlanSubject.value.first { item in
+            Calendar.current.isDate(item.plannedStartAt, inSameDayAs: endedAt) &&
+            item.status == .started &&
+            item.plannedStartAt <= endedAt
+        }
+
+        guard let nextItem else { return nil }
+
+        let startCoordinate = finalSnapshot?.currentCoordinate ?? locationService.currentLocation?.coordinate
+        guard let startCoordinate else { return nil }
+
+        updateJourneyPlanItemStatus(id: nextItem.id, status: .inProgress)
+        return TripSession(
+            startCoordinate: startCoordinate,
+            destinationCoordinate: CLLocationCoordinate2D(latitude: nextItem.latitude, longitude: nextItem.longitude),
+            leadTimeMinutes: nextItem.leadTimeMinutes,
+            selectedJourneyMode: nextItem.selectedJourneyMode,
+            journeyPlanItemID: nextItem.id,
+            startedAt: max(endedAt, nextItem.plannedStartAt)
+        )
+    }
+
+    private func finalizeJourneyPlanItemStatus(
+        for activeSession: TripSession,
+        completionStatus: JourneyCompletionStatus
+    ) {
+        guard let journeyPlanItemID = activeSession.journeyPlanItemID else { return }
+
+        let status: JourneyPlanStatus
+        switch completionStatus {
+        case .destinationReached, .journeyFinished:
+            status = .completed
+        case .cancelledByUser, .locationTurnedOffBeforeDestination:
+            status = .started
+        }
+
+        updateJourneyPlanItemStatus(id: journeyPlanItemID, status: status)
+    }
+
+    private func shouldAdvanceJourneyPlan(after completionStatus: JourneyCompletionStatus) -> Bool {
+        switch completionStatus {
+        case .destinationReached, .journeyFinished:
+            return true
+        case .cancelledByUser, .locationTurnedOffBeforeDestination:
+            return false
+        }
+    }
+
+    private func shouldAutoStartNextPlannedSession(at date: Date) -> Bool {
+        let isMovingNow = latestDetectedActivity != .stationary ||
+            max(locationService.currentLocation?.speed ?? 0, 0) >= 0.8
+        guard isMovingNow else { return false }
+
+        return journeyPlanSubject.value.contains { item in
+            Calendar.current.isDate(item.plannedStartAt, inSameDayAs: date) &&
+            item.status == .started &&
+            item.plannedStartAt <= date
+        }
     }
 
     private func writeGPXFile(
@@ -1058,6 +1381,7 @@ private struct PersistedActiveSession: Codable {
     let destinationLongitude: Double
     let leadTimeMinutes: Int
     let selectedJourneyMode: JourneyMode
+    let journeyPlanItemID: UUID?
     let startedAt: Date
     let routePoints: [PersistedTrackPoint]
     let activityEvents: [TripActivityEvent]?
@@ -1066,6 +1390,104 @@ private struct PersistedActiveSession: Codable {
     let lastMovementLatitude: Double?
     let lastMovementLongitude: Double?
     let latestDetectedActivity: DetectedJourneyActivity
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case startLatitude
+        case startLongitude
+        case destinationLatitude
+        case destinationLongitude
+        case leadTimeMinutes
+        case selectedJourneyMode
+        case journeyPlanItemID
+        case startedAt
+        case routePoints
+        case activityEvents
+        case runState
+        case lastMovementDetectedAt
+        case lastMovementLatitude
+        case lastMovementLongitude
+        case latestDetectedActivity
+    }
+
+    init(
+        id: UUID,
+        startLatitude: Double,
+        startLongitude: Double,
+        destinationLatitude: Double,
+        destinationLongitude: Double,
+        leadTimeMinutes: Int,
+        selectedJourneyMode: JourneyMode,
+        journeyPlanItemID: UUID?,
+        startedAt: Date,
+        routePoints: [PersistedTrackPoint],
+        activityEvents: [TripActivityEvent]?,
+        runState: MonitoringRunState,
+        lastMovementDetectedAt: Date?,
+        lastMovementLatitude: Double?,
+        lastMovementLongitude: Double?,
+        latestDetectedActivity: DetectedJourneyActivity
+    ) {
+        self.id = id
+        self.startLatitude = startLatitude
+        self.startLongitude = startLongitude
+        self.destinationLatitude = destinationLatitude
+        self.destinationLongitude = destinationLongitude
+        self.leadTimeMinutes = leadTimeMinutes
+        self.selectedJourneyMode = selectedJourneyMode
+        self.journeyPlanItemID = journeyPlanItemID
+        self.startedAt = startedAt
+        self.routePoints = routePoints
+        self.activityEvents = activityEvents
+        self.runState = runState
+        self.lastMovementDetectedAt = lastMovementDetectedAt
+        self.lastMovementLatitude = lastMovementLatitude
+        self.lastMovementLongitude = lastMovementLongitude
+        self.latestDetectedActivity = latestDetectedActivity
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        startLatitude = try container.decode(Double.self, forKey: .startLatitude)
+        startLongitude = try container.decode(Double.self, forKey: .startLongitude)
+        destinationLatitude = try container.decode(Double.self, forKey: .destinationLatitude)
+        destinationLongitude = try container.decode(Double.self, forKey: .destinationLongitude)
+        leadTimeMinutes = try container.decode(Int.self, forKey: .leadTimeMinutes)
+        selectedJourneyMode = try container.decode(JourneyMode.self, forKey: .selectedJourneyMode)
+        journeyPlanItemID = try container.decodeIfPresent(UUID.self, forKey: .journeyPlanItemID)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        routePoints = try container.decodeIfPresent([PersistedTrackPoint].self, forKey: .routePoints) ?? []
+        activityEvents = try container.decodeIfPresent([TripActivityEvent].self, forKey: .activityEvents)
+        runState = try container.decodeIfPresent(MonitoringRunState.self, forKey: .runState) ?? .active
+        lastMovementDetectedAt = try container.decodeIfPresent(Date.self, forKey: .lastMovementDetectedAt)
+        lastMovementLatitude = try container.decodeIfPresent(Double.self, forKey: .lastMovementLatitude)
+        lastMovementLongitude = try container.decodeIfPresent(Double.self, forKey: .lastMovementLongitude)
+        latestDetectedActivity = try container.decodeIfPresent(
+            DetectedJourneyActivity.self,
+            forKey: .latestDetectedActivity
+        ) ?? .unknown
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(startLatitude, forKey: .startLatitude)
+        try container.encode(startLongitude, forKey: .startLongitude)
+        try container.encode(destinationLatitude, forKey: .destinationLatitude)
+        try container.encode(destinationLongitude, forKey: .destinationLongitude)
+        try container.encode(leadTimeMinutes, forKey: .leadTimeMinutes)
+        try container.encode(selectedJourneyMode, forKey: .selectedJourneyMode)
+        try container.encodeIfPresent(journeyPlanItemID, forKey: .journeyPlanItemID)
+        try container.encode(startedAt, forKey: .startedAt)
+        try container.encode(routePoints, forKey: .routePoints)
+        try container.encodeIfPresent(activityEvents, forKey: .activityEvents)
+        try container.encode(runState, forKey: .runState)
+        try container.encodeIfPresent(lastMovementDetectedAt, forKey: .lastMovementDetectedAt)
+        try container.encodeIfPresent(lastMovementLatitude, forKey: .lastMovementLatitude)
+        try container.encodeIfPresent(lastMovementLongitude, forKey: .lastMovementLongitude)
+        try container.encode(latestDetectedActivity, forKey: .latestDetectedActivity)
+    }
 }
 
 private struct PersistedHistorySession: Codable {

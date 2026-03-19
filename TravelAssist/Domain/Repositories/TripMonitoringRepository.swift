@@ -48,10 +48,13 @@ protocol TripMonitoringRepository {
     var sessionPublisher: AnyPublisher<TripSession?, Never> { get }
     var snapshotPublisher: AnyPublisher<TravelSnapshot?, Never> { get }
     var historyPublisher: AnyPublisher<[TripHistorySession], Never> { get }
+    var journeyPlanPublisher: AnyPublisher<[JourneyPlanItem], Never> { get }
 
     func start(session: TripSession)
     func stop()
     func updateJourneyMode(_ mode: JourneyMode)
+    func addJourneyPlanItem(_ item: JourneyPlanItem)
+    func replaceJourneyPlanItems(_ items: [JourneyPlanItem])
     func recordUserAction(_ status: String)
     func triggerFakeCallForTesting()
     func refreshFromBackground()

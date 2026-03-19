@@ -7,6 +7,7 @@ struct TripSession: Identifiable {
     let destinationCoordinate: CLLocationCoordinate2D
     let leadTimeMinutes: Int
     let selectedJourneyMode: JourneyMode
+    let journeyPlanItemID: UUID?
     let startedAt: Date
 
     init(
@@ -15,6 +16,7 @@ struct TripSession: Identifiable {
         destinationCoordinate: CLLocationCoordinate2D,
         leadTimeMinutes: Int,
         selectedJourneyMode: JourneyMode,
+        journeyPlanItemID: UUID? = nil,
         startedAt: Date = .now
     ) {
         self.id = id
@@ -22,6 +24,7 @@ struct TripSession: Identifiable {
         self.destinationCoordinate = destinationCoordinate
         self.leadTimeMinutes = leadTimeMinutes
         self.selectedJourneyMode = selectedJourneyMode
+        self.journeyPlanItemID = journeyPlanItemID
         self.startedAt = startedAt
     }
 }

@@ -21,6 +21,6 @@ final class CurrentLocationProviderAdapter: CurrentLocationProvider {
     }
 
     func startSampling() {
-        locationService.startStandardUpdates()
+        locationService.requestOneTimeLocation()
     }
 }

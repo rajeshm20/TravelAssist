@@ -9,6 +9,8 @@ final class AppContainer {
     private let prepareCurrentLocationUseCase: PrepareCurrentLocationUseCase
     private let startUseCase: StartTripMonitoringUseCase
     private let updateJourneyModeUseCase: UpdateJourneyModeUseCase
+    private let addJourneyPlanItemUseCase: AddJourneyPlanItemUseCase
+    private let replaceJourneyPlanItemsUseCase: ReplaceJourneyPlanItemsUseCase
     private let recordTripUserActionUseCase: RecordTripUserActionUseCase
     private let stopUseCase: StopTripMonitoringUseCase
     private let triggerTestFakeCallUseCase: TriggerTestFakeCallUseCase
@@ -36,6 +38,8 @@ final class AppContainer {
         self.prepareCurrentLocationUseCase = PrepareCurrentLocationUseCaseImpl(locationProvider: currentLocationProvider)
         self.startUseCase = StartTripMonitoringUseCaseImpl(repository: repository)
         self.updateJourneyModeUseCase = UpdateJourneyModeUseCaseImpl(repository: repository)
+        self.addJourneyPlanItemUseCase = AddJourneyPlanItemUseCaseImpl(repository: repository)
+        self.replaceJourneyPlanItemsUseCase = ReplaceJourneyPlanItemsUseCaseImpl(repository: repository)
         self.recordTripUserActionUseCase = RecordTripUserActionUseCaseImpl(repository: repository)
         self.stopUseCase = StopTripMonitoringUseCaseImpl(repository: repository)
         self.triggerTestFakeCallUseCase = TriggerTestFakeCallUseCaseImpl(repository: repository)
@@ -59,6 +63,8 @@ final class AppContainer {
             prepareCurrentLocationUseCase: prepareCurrentLocationUseCase,
             startUseCase: startUseCase,
             updateJourneyModeUseCase: updateJourneyModeUseCase,
+            addJourneyPlanItemUseCase: addJourneyPlanItemUseCase,
+            replaceJourneyPlanItemsUseCase: replaceJourneyPlanItemsUseCase,
             recordTripUserActionUseCase: recordTripUserActionUseCase,
             triggerTestFakeCallUseCase: triggerTestFakeCallUseCase
         )

@@ -6,6 +6,11 @@ final class CoreLocationService: NSObject, LocationService {
     private let manager = CLLocationManager()
     private var lastKnownLocation: CLLocation?
     private var lastPublishedLocation: CLLocation?
+    private var wantsStandardUpdates = false
+    private var wantsSignificantUpdates = false
+    private var wantsOneTimeLocation = false
+    private var isStandardUpdatesActive = false
+    private var isSignificantUpdatesActive = false
 
     private let maximumHorizontalAccuracyMeters: CLLocationAccuracy = 80
     private let maximumLocationAgeSeconds: TimeInterval = 15
@@ -33,10 +38,10 @@ final class CoreLocationService: NSObject, LocationService {
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = 10
-        manager.activityType = .otherNavigation
-        manager.pausesLocationUpdatesAutomatically = false
+        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        manager.distanceFilter = 25
+        manager.activityType = .other
+        manager.pausesLocationUpdatesAutomatically = true
         if Self.supportsBackgroundLocationUpdates {
             manager.allowsBackgroundLocationUpdates = true
         }
@@ -53,35 +58,42 @@ final class CoreLocationService: NSObject, LocationService {
     }
 
     func startStandardUpdates() {
-        let status = manager.authorizationStatus
-        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
-            requestPermissionsIfNeeded()
-            return
-        }
-        manager.startUpdatingLocation()
-        manager.requestLocation()
+        wantsStandardUpdates = true
+        applyPendingRequestsIfAuthorized()
     }
 
     func stopStandardUpdates() {
+        wantsStandardUpdates = false
+        guard isStandardUpdatesActive else { return }
         manager.stopUpdatingLocation()
+        isStandardUpdatesActive = false
     }
 
     func requestOneTimeLocation() {
-        let status = manager.authorizationStatus
-        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
-            requestPermissionsIfNeeded()
-            return
-        }
-        manager.requestLocation()
+        wantsOneTimeLocation = true
+        applyPendingRequestsIfAuthorized()
     }
 
     func startSignificantUpdates() {
-        manager.startMonitoringSignificantLocationChanges()
+        wantsSignificantUpdates = true
+        applyPendingRequestsIfAuthorized()
     }
 
     func stopUpdates() {
-        manager.stopUpdatingLocation()
-        manager.stopMonitoringSignificantLocationChanges()
+        wantsStandardUpdates = false
+        wantsSignificantUpdates = false
+        wantsOneTimeLocation = false
+
+        if isStandardUpdatesActive {
+            manager.stopUpdatingLocation()
+            isStandardUpdatesActive = false
+        }
+
+        if isSignificantUpdatesActive {
+            manager.stopMonitoringSignificantLocationChanges()
+            isSignificantUpdatesActive = false
+        }
+
         stopMonitoringDestination()
     }
 
@@ -109,6 +121,35 @@ final class CoreLocationService: NSObject, LocationService {
             return false
         }
         return modes.contains("location")
+    }
+
+    private func applyPendingRequestsIfAuthorized() {
+        let status = manager.authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
+            requestPermissionsIfNeeded()
+            return
+        }
+
+        if wantsStandardUpdates && !isStandardUpdatesActive {
+            manager.startUpdatingLocation()
+            isStandardUpdatesActive = true
+        } else if !wantsStandardUpdates && isStandardUpdatesActive {
+            manager.stopUpdatingLocation()
+            isStandardUpdatesActive = false
+        }
+
+        if wantsSignificantUpdates && !isSignificantUpdatesActive {
+            manager.startMonitoringSignificantLocationChanges()
+            isSignificantUpdatesActive = true
+        } else if !wantsSignificantUpdates && isSignificantUpdatesActive {
+            manager.stopMonitoringSignificantLocationChanges()
+            isSignificantUpdatesActive = false
+        }
+
+        if wantsOneTimeLocation {
+            wantsOneTimeLocation = false
+            manager.requestLocation()
+        }
     }
 
     private func publishIfMeaningful(_ location: CLLocation) {
@@ -154,8 +195,7 @@ extension CoreLocationService: CLLocationManagerDelegate {
         authorizationSubject.send(status)
 
         if status == .authorizedWhenInUse || status == .authorizedAlways {
-            manager.startUpdatingLocation()
-            manager.requestLocation()
+            applyPendingRequestsIfAuthorized()
         }
 
         if status == .authorizedWhenInUse {

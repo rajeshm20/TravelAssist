@@ -4,6 +4,10 @@ import MapKit
 
 final class MapKitETAEstimator: ETAEstimator {
     private let minimumReliableSpeedMetersPerSecond: CLLocationSpeed = 1.0
+    private let routeRefreshMinimumIntervalSeconds: TimeInterval = 180
+    private let routeRefreshMinimumDistanceMeters: CLLocationDistance = 125
+    private let cacheLock = NSLock()
+    private var cachedRoute: CachedRouteEstimate?
 
     func estimateETA(
         from currentLocation: CLLocation,
@@ -16,6 +20,15 @@ final class MapKitETAEstimator: ETAEstimator {
             distanceMeters: fallbackDistance,
             etaSeconds: fallbackDistance / resolvedSpeed(from: currentLocation, mode: mode)
         )
+
+        if let cachedEstimate = cachedEstimateIfUsable(
+            from: currentLocation,
+            to: destination,
+            mode: mode,
+            fallbackDistance: fallbackDistance
+        ) {
+            return cachedEstimate
+        }
 
         #if targetEnvironment(simulator)
         // Routing responses can be noisy in Simulator, so use deterministic movement-based values.
@@ -32,6 +45,13 @@ final class MapKitETAEstimator: ETAEstimator {
             let response = try await MKDirections(request: request).calculate()
             if let route = response.routes.first {
                 let adjustedTime = adjustedTravelTime(route.expectedTravelTime, mode: mode)
+                storeCachedRoute(
+                    currentLocation: currentLocation,
+                    destination: destination,
+                    mode: mode,
+                    fallbackDistance: fallbackDistance,
+                    adjustedTime: adjustedTime
+                )
                 // Keep distance based on the user's live GPS position to avoid route-distance jumps.
                 return ETAEstimate(
                     distanceMeters: fallbackDistance,
@@ -44,6 +64,58 @@ final class MapKitETAEstimator: ETAEstimator {
 
         return fallbackEstimate
         #endif
+    }
+
+    private func cachedEstimateIfUsable(
+        from currentLocation: CLLocation,
+        to destination: CLLocationCoordinate2D,
+        mode: JourneyMode,
+        fallbackDistance: CLLocationDistance
+    ) -> ETAEstimate? {
+        cacheLock.lock()
+        let cachedRoute = cachedRoute
+        cacheLock.unlock()
+
+        guard let cachedRoute else { return nil }
+        guard cachedRoute.mode == mode else { return nil }
+        guard cachedRoute.destination.latitude == destination.latitude,
+              cachedRoute.destination.longitude == destination.longitude else {
+            return nil
+        }
+
+        let age = Date().timeIntervalSince(cachedRoute.updatedAt)
+        let movedMeters = currentLocation.distance(from: cachedRoute.originLocation)
+        guard age < routeRefreshMinimumIntervalSeconds || movedMeters < routeRefreshMinimumDistanceMeters else {
+            return nil
+        }
+
+        let etaSeconds = fallbackDistance / cachedRoute.effectiveSpeedMetersPerSecond
+        return ETAEstimate(distanceMeters: fallbackDistance, etaSeconds: max(0, etaSeconds))
+    }
+
+    private func storeCachedRoute(
+        currentLocation: CLLocation,
+        destination: CLLocationCoordinate2D,
+        mode: JourneyMode,
+        fallbackDistance: CLLocationDistance,
+        adjustedTime: TimeInterval
+    ) {
+        guard adjustedTime > 0, fallbackDistance > 0 else { return }
+
+        let effectiveSpeedMetersPerSecond = max(
+            minimumReliableSpeedMetersPerSecond,
+            fallbackDistance / adjustedTime
+        )
+
+        cacheLock.lock()
+        cachedRoute = CachedRouteEstimate(
+            originLocation: currentLocation,
+            destination: destination,
+            mode: mode,
+            effectiveSpeedMetersPerSecond: effectiveSpeedMetersPerSecond,
+            updatedAt: Date()
+        )
+        cacheLock.unlock()
     }
 
     private func resolvedSpeed(from location: CLLocation, mode: JourneyMode) -> CLLocationSpeed {
@@ -101,4 +173,12 @@ final class MapKitETAEstimator: ETAEstimator {
         }
         return expectedTravelTime * factor
     }
+}
+
+private struct CachedRouteEstimate {
+    let originLocation: CLLocation
+    let destination: CLLocationCoordinate2D
+    let mode: JourneyMode
+    let effectiveSpeedMetersPerSecond: CLLocationSpeed
+    let updatedAt: Date
 }

@@ -22,7 +22,8 @@ protocol BuildTripSessionUseCase {
     func execute(
         destination: CLLocationCoordinate2D,
         leadTimeMinutes: Int,
-        selectedJourneyMode: JourneyMode
+        selectedJourneyMode: JourneyMode,
+        startCoordinateOverride: CLLocationCoordinate2D?
     ) throws -> TripSession
 }
 
@@ -36,7 +37,8 @@ struct BuildTripSessionUseCaseImpl: BuildTripSessionUseCase {
     func execute(
         destination: CLLocationCoordinate2D,
         leadTimeMinutes: Int,
-        selectedJourneyMode: JourneyMode
+        selectedJourneyMode: JourneyMode,
+        startCoordinateOverride: CLLocationCoordinate2D? = nil
     ) throws -> TripSession {
         guard leadTimeMinutes > 0 else {
             throw BuildTripSessionError.invalidLeadTime
@@ -44,7 +46,12 @@ struct BuildTripSessionUseCaseImpl: BuildTripSessionUseCase {
         locationProvider.requestAccessIfNeeded()
         locationProvider.startSampling()
 
-        guard let startCoordinate = locationProvider.currentCoordinate else {
+        let startCoordinate: CLLocationCoordinate2D
+        if let startCoordinateOverride {
+            startCoordinate = startCoordinateOverride
+        } else if let currentCoordinate = locationProvider.currentCoordinate {
+            startCoordinate = currentCoordinate
+        } else {
             if locationProvider.authorizationStatus == .denied || locationProvider.authorizationStatus == .restricted {
                 throw BuildTripSessionError.locationPermissionDenied
             }

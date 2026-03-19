@@ -25,7 +25,7 @@ struct MonitoringView: View {
                 dismiss()
             }
             .buttonStyle(.borderedProminent)
-            .tint(viewModel.stopButtonTitle == "Stop Monitoring" ? .red : .orange)
+            .tint(.red)
         }
         .padding()
         .navigationBarTitleDisplayMode(.inline)

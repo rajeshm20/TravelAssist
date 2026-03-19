@@ -11,10 +11,14 @@ struct TripSetupView: View {
     @StateObject private var fakeCallFeedback = FakeIncomingCallFeedback()
     @State private var isDestinationPickerPresented = false
     @State private var isHistoryPresented = false
-    @State private var isLeadTimePickerExpanded = false
     @State private var isRoutePreviewExpanded = false
+    @State private var isJourneyPlanExpanded = true
+    @State private var isJourneyPlanEditorPresented = false
     @State private var isFakeCallPresented = false
     @State private var isFakeCallSpeaking = false
+    @State private var selectedJourneyPlanDate = Calendar.current.startOfDay(for: Date())
+    @State private var pendingDestinationDecision: DestinationDraft?
+    @State private var editingJourneyPlanItem: JourneyPlanItem?
     @State private var activeFakeCallCallerName = "Travel Assist"
     @State private var activeFakeCallMessage = AppConstants.fakeCallNotificationMessage
     @StateObject private var routePreviewViewModel = RoutePreviewViewModel()
@@ -64,6 +68,90 @@ struct TripSetupView: View {
                                 .foregroundStyle(.black.opacity(0.9))
                         }
 
+                        softCard {
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Label(journeyPlanTitle, systemImage: "calendar.badge.clock")
+                                        .font(.headline.weight(.semibold))
+                                        .foregroundStyle(.black.opacity(0.85))
+                                    Text(Self.journeyPlanDateFormatter.string(from: selectedJourneyPlanDate))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                Button("Plan") {
+                                    editingJourneyPlanItem = nil
+                                    isJourneyPlanEditorPresented = true
+                                }
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(Color(red: 0.99, green: 0.94, blue: 0.90), in: Capsule())
+                                .foregroundStyle(Color(red: 0.98, green: 0.47, blue: 0.22))
+
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        isJourneyPlanExpanded.toggle()
+                                    }
+                                } label: {
+                                    Image(systemName: isJourneyPlanExpanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+                                        .font(.title3)
+                                        .foregroundStyle(Color(red: 0.98, green: 0.47, blue: 0.22))
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            HStack(spacing: 10) {
+                                DatePicker(
+                                    "Journey Date",
+                                    selection: selectedJourneyPlanDateBinding,
+                                    displayedComponents: .date
+                                )
+                                .labelsHidden()
+                                .datePickerStyle(.compact)
+
+                                Spacer()
+
+                                Text("\(journeyPlanItemsForSelectedDate.count) stop\(journeyPlanItemsForSelectedDate.count == 1 ? "" : "s")")
+                                    .font(.caption.weight(.semibold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color(red: 0.94, green: 0.95, blue: 1.0), in: Capsule())
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if isJourneyPlanExpanded {
+                                if journeyPlanSections.isEmpty {
+                                    Text(emptyJourneyPlanMessage)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.top, 2)
+                                } else {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        ForEach(journeyPlanSections) { section in
+                                            VStack(alignment: .leading, spacing: 10) {
+                                                HStack {
+                                                    Text(section.title)
+                                                        .font(.caption.weight(.semibold))
+                                                        .foregroundStyle(.secondary)
+                                                    Spacer()
+                                                    Text("\(section.items.count)")
+                                                        .font(.caption2.weight(.bold))
+                                                        .foregroundStyle(.secondary)
+                                                }
+
+                                                ForEach(section.items) { item in
+                                                    journeyPlanRow(item)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         ZStack(alignment: .trailing) {
                             RoundedRectangle(cornerRadius: 22, style: .continuous)
                                 .fill(
@@ -108,11 +196,11 @@ struct TripSetupView: View {
                                     }
                                 }
 
-                                Button(monitoringViewModel.isMonitoring ? monitoringViewModel.stopButtonTitle : "Start Monitoring") {
+                                Button(monitoringViewModel.isMonitoring ? monitoringViewModel.stopButtonTitle : "Start Trip") {
                                     if monitoringViewModel.isMonitoring {
                                         monitoringViewModel.stopMonitoring()
                                     } else {
-                                        viewModel.startMonitoring()
+                                        viewModel.startMonitoring(using: monitoringViewModel.journeyPlanItems)
                                     }
                                 }
                                 .font(.subheadline.weight(.semibold))
@@ -142,21 +230,23 @@ struct TripSetupView: View {
 
                         softCard {
                             HStack {
-                                Label("Destination", systemImage: "mappin.and.ellipse")
+                                Label(monitoringViewModel.isMonitoring ? "Current Trip" : "Destination & Route", systemImage: "mappin.and.ellipse")
                                     .font(.headline.weight(.semibold))
                                     .foregroundStyle(.black.opacity(0.85))
                                 Spacer()
-                                Button("Pick") {
-                                    isDestinationPickerPresented = true
+                                if !monitoringViewModel.isMonitoring {
+                                    Button(viewModel.selectedDestinationName == nil ? "Search Map" : "Change") {
+                                        isDestinationPickerPresented = true
+                                    }
+                                    .font(.caption.weight(.semibold))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(Color(red: 0.91, green: 0.93, blue: 0.98), in: Capsule())
                                 }
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(Color(red: 0.91, green: 0.93, blue: 0.98), in: Capsule())
                             }
 
-                            if let selectedDestinationName = viewModel.selectedDestinationName {
-                                Text(selectedDestinationName)
+                            if let tripName = monitoringViewModel.isMonitoring ? currentTripName : viewModel.selectedDestinationName {
+                                Text(tripName)
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(.black.opacity(0.82))
                                     .lineLimit(2)
@@ -171,78 +261,6 @@ struct TripSetupView: View {
                                 Text(String(format: "%.5f, %.5f", latitude, longitude))
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        softCard {
-                            HStack {
-                                Label("Trip Details", systemImage: "list.bullet.rectangle.portrait")
-                                    .font(.headline.weight(.semibold))
-                                Spacer()
-                                if monitoringViewModel.isMonitoring {
-                                    Text("Live")
-                                        .font(.caption2.weight(.bold))
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(Color.green.opacity(0.18), in: Capsule())
-                                        .foregroundStyle(Color.green.opacity(0.9))
-                                }
-                            }
-
-                            detailRow(title: "Distance", value: monitoringViewModel.isMonitoring ? monitoringViewModel.distanceText : "--")
-                            detailRow(title: "ETA (Hour/Min)", value: monitoringViewModel.isMonitoring ? monitoringViewModel.etaText : "--")
-                            detailRow(title: "Status", value: monitoringViewModel.statusText)
-                            detailIconRow(
-                                title: "Journey",
-                                symbol: monitoringViewModel.selectedJourneyModeSymbol,
-                                value: monitoringViewModel.selectedJourneyModeText
-                            )
-                            detailIconRow(
-                                title: "Detected",
-                                symbol: monitoringViewModel.detectedModeSymbol,
-                                value: monitoringViewModel.detectedModeText
-                            )
-                        }
-
-                        HStack(spacing: 12) {
-                            softCard {
-                                Label("Journey Mode", systemImage: viewModel.selectedJourneyMode.symbolName)
-                                    .font(.headline.weight(.semibold))
-                                Text(viewModel.selectedJourneyMode.title)
-                                    .font(.title3.weight(.bold))
-                                    .fontDesign(.rounded)
-                                    .dynamicTypeSize(.small)
-                                Picker("Mode", selection: $viewModel.selectedJourneyMode) {
-                                    ForEach(JourneyMode.allCases) { mode in
-                                        Label(/*mode.title*/"", systemImage: mode.symbolName).tag(mode)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .labelsHidden()
-                            }
-                            .frame(maxWidth: .infinity)
-
-                            softCard {
-                                Label("Lead Time", systemImage: "clock.badge.checkmark")
-                                    .font(.headline.weight(.semibold))
-                                Text(viewModel.leadTimeFormatted)
-                                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                                    .monospacedDigit()
-                                Button("Change HH:mm") {
-                                    isLeadTimePickerExpanded = true
-                                }
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(Color(red: 0.94, green: 0.95, blue: 1.0), in: Capsule())
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-
-                        softCard {
-                            HStack {
-                                Label("Route Preview", systemImage: "map.fill")
-                                    .font(.headline.weight(.semibold))
                             }
 
                             RoutePreviewMapView(
@@ -267,6 +285,12 @@ struct TripSetupView: View {
                             .onChange(of: monitoringViewModel.activeSession?.id) { _, _ in
                                 syncRoutePreviewDestination()
                             }
+                            .onChange(of: monitoringViewModel.activeSession?.destinationCoordinate.latitude) { _, _ in
+                                syncRoutePreviewDestination()
+                            }
+                            .onChange(of: monitoringViewModel.activeSession?.destinationCoordinate.longitude) { _, _ in
+                                syncRoutePreviewDestination()
+                            }
 
                             if let routeStatusMessage = routePreviewViewModel.routeStatusMessage {
                                 Text(routeStatusMessage)
@@ -274,6 +298,14 @@ struct TripSetupView: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(2)
                             }
+
+                            Text(
+                                monitoringViewModel.isMonitoring
+                                ? "Live trip preview follows your active route."
+                                : "Search for a place, preview the route here, then start monitoring."
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                         }
 
                         softCard {
@@ -331,17 +363,24 @@ struct TripSetupView: View {
                 )
             }
             .sheet(isPresented: $isDestinationPickerPresented) {
-                DestinationSearchSheet { name, coordinate in
-                    viewModel.applyDestinationFromAppleMaps(name: name, coordinate: coordinate)
+                DestinationMapPickerSheet(initialSelection: selectedDestinationDraft) { destination in
+                    handleDestinationSelection(destination)
                 }
+            }
+            .sheet(isPresented: $isJourneyPlanEditorPresented, onDismiss: {
+                editingJourneyPlanItem = nil
+            }) {
+                JourneyPlanEditorSheet(
+                    viewModel: viewModel,
+                    existingItems: monitoringViewModel.journeyPlanItems,
+                    selectedDate: selectedJourneyPlanDate,
+                    editingItem: editingJourneyPlanItem
+                )
             }
             .sheet(isPresented: $isHistoryPresented) {
                 MonitoringHistoryBottomSheet(sessions: monitoringViewModel.historySessions)
                     .presentationDetents([.fraction(0.25), .medium, .large])
                     .presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $isLeadTimePickerExpanded) {
-                LeadTimePickerSheet(viewModel: viewModel)
             }
             .fullScreenCover(isPresented: $isFakeCallPresented) {
                 FakeIncomingCallView(
@@ -384,6 +423,29 @@ struct TripSetupView: View {
                     monitoringViewModel: monitoringViewModel
                 )
             }
+            .alert(
+                "Update Current Monitoring?",
+                isPresented: pendingDestinationDecisionBinding,
+                presenting: pendingDestinationDecision
+            ) { destination in
+                Button("Change Current Trip") {
+                    viewModel.changeActiveMonitoringDestination(name: destination.title, coordinate: destination.coordinate)
+                }
+                Button("Add To Next Plan") {
+                    viewModel.addDestinationToJourneyPlan(
+                        existingItems: monitoringViewModel.journeyPlanItems,
+                        name: destination.title,
+                        subtitle: destination.subtitle,
+                        coordinate: destination.coordinate,
+                        estimatedTravelDurationSeconds: destination.estimatedTravelTime
+                    )
+                    selectedJourneyPlanDate = Calendar.current.startOfDay(for: viewModel.plannedStartDate)
+                    isJourneyPlanExpanded = true
+                }
+                Button("Keep Current Trip", role: .cancel) {}
+            } message: { destination in
+                Text("Monitoring is already running. Switch the active trip to \(destination.title), or keep the current trip and add this place to your next journey plan.")
+            }
         }
     }
 
@@ -397,27 +459,60 @@ struct TripSetupView: View {
     }
 
     @ViewBuilder
-    private func detailRow(title: String, value: String) -> some View {
-        HStack {
-            Text(title).fontWeight(.semibold)
-            Spacer()
-            Text(value)
-                .multilineTextAlignment(.trailing)
-        }
-        .font(.caption)
-    }
+    private func journeyPlanRow(_ item: JourneyPlanItem) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: item.selectedJourneyMode.symbolName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color(red: 0.98, green: 0.47, blue: 0.22))
+                .frame(width: 28, height: 28)
+                .background(Color(red: 0.99, green: 0.94, blue: 0.90), in: Circle())
 
-    @ViewBuilder
-    private func detailIconRow(title: String, symbol: String, value: String) -> some View {
-        HStack(spacing: 8) {
-            Text(title).fontWeight(.semibold)
-            Spacer()
-            Image(systemName: symbol)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .multilineTextAlignment(.trailing)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.black.opacity(0.82))
+
+                if let subtitle = item.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Text("Lead time \(leadTimeText(minutes: item.leadTimeMinutes))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 10)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(Self.journeyPlanTimeFormatter.string(from: item.plannedStartAt))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.black.opacity(0.76))
+                Text(Self.journeyPlanTimeFormatter.string(from: item.approximateEndAt))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(journeyPlanStatusText(for: item))
+                    .font(.caption2)
+                    .foregroundStyle(journeyPlanStatusColor(for: item))
+                if item.status != .completed {
+                    Button {
+                        editingJourneyPlanItem = item
+                        selectedJourneyPlanDate = Calendar.current.startOfDay(for: item.plannedStartAt)
+                        isJourneyPlanEditorPresented = true
+                    } label: {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(Color(red: 0.19, green: 0.45, blue: 0.93))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
-        .font(.caption)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     @ViewBuilder
@@ -459,6 +554,14 @@ struct TripSetupView: View {
         .background(Color.white.opacity(0.18), in: Capsule())
     }
 
+    private var currentTripName: String? {
+        if let journeyPlanItemID = monitoringViewModel.activeSession?.journeyPlanItemID,
+           let matchedItem = monitoringViewModel.journeyPlanItems.first(where: { $0.id == journeyPlanItemID }) {
+            return matchedItem.title
+        }
+        return viewModel.selectedDestinationName
+    }
+
     private func syncRoutePreviewDestination() {
         if let sessionDestination = monitoringViewModel.activeSession?.destinationCoordinate {
             routePreviewViewModel.updateDestination(coordinate: sessionDestination)
@@ -469,6 +572,120 @@ struct TripSetupView: View {
             latitudeText: viewModel.destinationLatitudeText,
             longitudeText: viewModel.destinationLongitudeText
         )
+    }
+
+    private func handleDestinationSelection(_ draft: DestinationDraft) {
+        guard monitoringViewModel.isMonitoring else {
+            viewModel.applyDestinationFromAppleMaps(name: draft.title, coordinate: draft.coordinate)
+            return
+        }
+
+        if isCurrentActiveDestination(draft.coordinate) {
+            viewModel.applyDestinationFromAppleMaps(name: draft.title, coordinate: draft.coordinate)
+            return
+        }
+
+        pendingDestinationDecision = draft
+    }
+
+    private func isCurrentActiveDestination(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        guard let activeDestination = monitoringViewModel.activeSession?.destinationCoordinate else {
+            return false
+        }
+
+        return abs(activeDestination.latitude - coordinate.latitude) < 0.00001 &&
+            abs(activeDestination.longitude - coordinate.longitude) < 0.00001
+    }
+
+    private func leadTimeText(minutes: Int) -> String {
+        String(format: "%02d:%02d", minutes / 60, minutes % 60)
+    }
+
+    private func journeyPlanStatusText(for item: JourneyPlanItem) -> String {
+        switch item.status {
+        case .completed:
+            return "Completed"
+        case .inProgress:
+            return "In Progress"
+        case .started:
+            return item.plannedStartAt > Date() ? "Not Started" : "Started"
+        }
+    }
+
+    private func journeyPlanStatusColor(for item: JourneyPlanItem) -> Color {
+        switch item.status {
+        case .completed:
+            return Color.green.opacity(0.85)
+        case .inProgress:
+            return Color(red: 0.98, green: 0.47, blue: 0.22)
+        case .started:
+            return item.plannedStartAt > Date()
+                ? .secondary
+                : Color(red: 0.19, green: 0.45, blue: 0.93)
+        }
+    }
+
+    private var selectedJourneyPlanDateBinding: Binding<Date> {
+        Binding(
+            get: { selectedJourneyPlanDate },
+            set: { selectedJourneyPlanDate = Calendar.current.startOfDay(for: $0) }
+        )
+    }
+
+    private var pendingDestinationDecisionBinding: Binding<Bool> {
+        Binding(
+            get: { pendingDestinationDecision != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingDestinationDecision = nil
+                }
+            }
+        )
+    }
+
+    private var selectedDestinationDraft: DestinationDraft? {
+        guard let selectedDestinationCoordinate else { return nil }
+        return DestinationDraft(
+            title: viewModel.selectedDestinationName ?? "Selected destination",
+            subtitle: nil,
+            coordinate: selectedDestinationCoordinate,
+            estimatedTravelTime: nil
+        )
+    }
+
+    private var selectedDestinationCoordinate: CLLocationCoordinate2D? {
+        guard let latitude = Double(viewModel.destinationLatitudeText),
+              let longitude = Double(viewModel.destinationLongitudeText) else {
+            return nil
+        }
+        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    private var journeyPlanTitle: String {
+        Calendar.current.isDateInToday(selectedJourneyPlanDate) ? "Today's Journey Plan" : "Journey Plan"
+    }
+
+    private var journeyPlanItemsForSelectedDate: [JourneyPlanItem] {
+        monitoringViewModel.journeyPlanItems
+            .filter { Calendar.current.isDate($0.plannedStartAt, inSameDayAs: selectedJourneyPlanDate) }
+            .sorted { lhs, rhs in
+                if lhs.plannedStartAt == rhs.plannedStartAt {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.plannedStartAt < rhs.plannedStartAt
+            }
+    }
+
+    private var journeyPlanSections: [JourneyPlanSection] {
+        JourneyPlanTimeBucket.allCases.compactMap { bucket in
+            let items = journeyPlanItemsForSelectedDate.filter { bucket.contains($0.plannedStartAt) }
+            guard !items.isEmpty else { return nil }
+            return JourneyPlanSection(title: bucket.title, items: items)
+        }
+    }
+
+    private var emptyJourneyPlanMessage: String {
+        "No places planned for \(Self.journeyPlanDateFormatter.string(from: selectedJourneyPlanDate)). Add a destination while monitoring to line up your next stop."
     }
 
     private func presentIncomingFakeCall(callerName: String, message: String) {
@@ -491,6 +708,61 @@ struct TripSetupView: View {
         formatter.dateFormat = "EEEE, d"
         return formatter
     }()
+
+    private static let journeyPlanDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
+    private static let journeyPlanTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
+}
+
+private struct JourneyPlanSection: Identifiable {
+    let title: String
+    let items: [JourneyPlanItem]
+
+    var id: String { title }
+}
+
+private enum JourneyPlanTimeBucket: CaseIterable {
+    case earlyMorning
+    case morning
+    case afternoon
+    case evening
+    case night
+
+    var title: String {
+        switch self {
+        case .earlyMorning: return "Early Morning"
+        case .morning: return "Morning"
+        case .afternoon: return "Afternoon"
+        case .evening: return "Evening"
+        case .night: return "Night"
+        }
+    }
+
+    func contains(_ date: Date) -> Bool {
+        let hour = Calendar.current.component(.hour, from: date)
+        switch self {
+        case .earlyMorning:
+            return (0..<6).contains(hour)
+        case .morning:
+            return (6..<12).contains(hour)
+        case .afternoon:
+            return (12..<17).contains(hour)
+        case .evening:
+            return (17..<21).contains(hour)
+        case .night:
+            return (21..<24).contains(hour)
+        }
+    }
 }
 
 @MainActor
@@ -640,94 +912,52 @@ private final class FakeIncomingCallFeedback: ObservableObject {
     }
 }
 
-private struct DestinationSearchSheet: View {
-    let onSelect: (String, CLLocationCoordinate2D) -> Void
+private struct DestinationMapPickerSheet: View {
+    let initialSelection: DestinationDraft?
+    let onSelect: (DestinationDraft) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel = DestinationSearchViewModel()
+    @StateObject private var searchViewModel = DestinationSearchViewModel()
+    @StateObject private var routePreviewViewModel = RoutePreviewViewModel()
     @State private var query = ""
+    @State private var pendingSelection: DestinationDraft?
+    @State private var previewTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
-            List {
-                if !viewModel.recentDestinations.isEmpty {
-                    Section {
-                        ForEach(viewModel.recentDestinations) { destination in
-                            Button {
-                                let coordinate = CLLocationCoordinate2D(
-                                    latitude: destination.latitude,
-                                    longitude: destination.longitude
-                                )
-                                onSelect(destination.title, coordinate)
-                                dismiss()
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(destination.title)
-                                        .font(.body)
-                                    if let subtitle = destination.subtitle, !subtitle.isEmpty {
-                                        Text(subtitle)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    } header: {
-                        HStack {
-                            Text("Recent")
-                            Spacer()
-                            Button("Clear") {
-                                viewModel.clearRecentDestinations()
-                            }
-                            .font(.caption)
-                        }
-                    }
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    previewHeader
+                    searchResultsContent
                 }
-
-                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Search for a place or address")
-                        .foregroundStyle(.secondary)
-                }
-
-                ForEach(Array(viewModel.results.enumerated()), id: \.offset) { _, completion in
-                    Button {
-                        Task {
-                            if let item = await viewModel.resolve(completion) {
-                                let name = item.name ?? completion.title
-                                viewModel.saveRecentDestination(
-                                    title: name,
-                                    subtitle: completion.subtitle,
-                                    coordinate: item.placemark.coordinate
-                                )
-                                onSelect(name, item.placemark.coordinate)
-                                dismiss()
-                            }
-                        }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(completion.title)
-                                .font(.body)
-                            if !completion.subtitle.isEmpty {
-                                Text(completion.subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
+                .padding(.bottom, 12)
             }
+            .scrollDismissesKeyboard(.interactively)
             .overlay {
-                if viewModel.isLoading {
+                if searchViewModel.isLoading {
                     ProgressView("Fetching location...")
                         .padding()
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                confirmSelectionBar
+            }
             .searchable(text: $query, prompt: "Search Apple Maps")
             .onChange(of: query) { value in
-                viewModel.updateQuery(value)
+                searchViewModel.updateQuery(value)
+            }
+            .onAppear {
+                routePreviewViewModel.onAppear()
+                if let initialSelection {
+                    pendingSelection = initialSelection
+                    routePreviewViewModel.updateDestination(coordinate: initialSelection.coordinate)
+                }
+            }
+            .onDisappear {
+                previewTask?.cancel()
+                previewTask = nil
+                routePreviewViewModel.onDisappear()
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -736,19 +966,300 @@ private struct DestinationSearchSheet: View {
                     }
                 }
             }
-            .navigationTitle("Destination")
+            .navigationTitle("Choose Destination")
             .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .bottom) {
-                if let errorMessage = viewModel.errorMessage {
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity)
-                        .background(.background)
+        }
+    }
+
+    private var previewHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            RoutePreviewMapView(
+                viewModel: routePreviewViewModel,
+                isMonitoringActive: false,
+                onExpand: nil,
+                shouldFollowUserWhenMoving: false
+            )
+            .frame(height: 280)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+            selectionSummary
+
+            if let routeStatusMessage = routePreviewViewModel.routeStatusMessage {
+                Text(routeStatusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            if let errorMessage = searchViewModel.errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+    }
+
+    @ViewBuilder
+    private var selectionSummary: some View {
+        if let pendingSelection {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(pendingSelection.title)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                if let subtitle = pendingSelection.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(selectedCoordinateText(for: pendingSelection))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Text("Search for a place, tap a result, and the route preview updates instantly.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var searchResultsContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            recentDestinationsSection
+            emptySearchSection
+            searchResultRows
+            emptyResultsState
+        }
+        .padding(.horizontal, 16)
+    }
+
+    @ViewBuilder
+    private var recentDestinationsSection: some View {
+        if !searchViewModel.recentDestinations.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Recent")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Clear") {
+                        searchViewModel.clearRecentDestinations()
+                    }
+                    .font(.caption)
+                }
+
+                ForEach(searchViewModel.recentDestinations) { destination in
+                    recentDestinationRow(destination)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var emptySearchSection: some View {
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text("Search for a place or address to drop a pin and preview the route.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private var searchResultRows: some View {
+        ForEach(Array(searchViewModel.results.enumerated()), id: \.offset) { _, completion in
+            searchResultRow(completion)
+        }
+    }
+
+    @ViewBuilder
+    private var emptyResultsState: some View {
+        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           searchViewModel.results.isEmpty,
+           !searchViewModel.isLoading,
+           searchViewModel.errorMessage == nil {
+            Text("No matching destinations found yet. Try a nearby landmark, area, or full address.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private var confirmSelectionBar: some View {
+        VStack(spacing: 10) {
+            Button {
+                confirmSelection()
+            } label: {
+                Text(confirmSelectionButtonTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(confirmSelectionBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .foregroundStyle(confirmSelectionForegroundColor)
+            }
+            .buttonStyle(.plain)
+            .disabled(pendingSelection == nil)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 16)
+        .background(.ultraThinMaterial)
+    }
+
+    private var confirmSelectionButtonTitle: String {
+        pendingSelection == nil ? "Preview a Destination" : "Use This Destination"
+    }
+
+    private var confirmSelectionBackground: Color {
+        pendingSelection == nil ? Color.gray.opacity(0.18) : Color(red: 0.98, green: 0.47, blue: 0.22)
+    }
+
+    private var confirmSelectionForegroundColor: Color {
+        pendingSelection == nil ? .secondary : .white
+    }
+
+    private func selectedCoordinateText(for selection: DestinationDraft) -> String {
+        String(
+            format: "%.5f, %.5f",
+            selection.coordinate.latitude,
+            selection.coordinate.longitude
+        )
+    }
+
+    private func recentDestinationRow(_ destination: RecentDestination) -> some View {
+        Button {
+            selectRecentDestination(destination)
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(destination.title)
+                        .font(.body)
+                    if let subtitle = destination.subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 8)
+                if isSelected(recentDestination: destination) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
+    }
+
+    private func searchResultRow(_ completion: MKLocalSearchCompletion) -> some View {
+        Button {
+            selectSearchCompletion(completion)
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(completion.title)
+                        .font(.body)
+                    if !completion.subtitle.isEmpty {
+                        Text(completion.subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 8)
+                if isSelected(completion: completion) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
+    }
+
+    private func selectRecentDestination(_ destination: RecentDestination) {
+        previewTask?.cancel()
+        previewTask = nil
+        let draft = DestinationDraft(
+            title: destination.title,
+            subtitle: destination.subtitle,
+            coordinate: CLLocationCoordinate2D(
+                latitude: destination.latitude,
+                longitude: destination.longitude
+            ),
+            estimatedTravelTime: nil
+        )
+        applySelection(draft)
+    }
+
+    private func selectSearchCompletion(_ completion: MKLocalSearchCompletion) {
+        previewTask?.cancel()
+        previewTask = Task {
+            defer { previewTask = nil }
+            guard let item = await searchViewModel.resolve(completion) else { return }
+            guard !Task.isCancelled else { return }
+
+            let draft = DestinationDraft(
+                title: item.name ?? completion.title,
+                subtitle: completion.subtitle,
+                coordinate: item.placemark.coordinate,
+                estimatedTravelTime: nil
+            )
+            applySelection(draft)
+        }
+    }
+
+    private func applySelection(_ pendingSelection: DestinationDraft) {
+        self.pendingSelection = pendingSelection
+        routePreviewViewModel.updateDestination(coordinate: pendingSelection.coordinate)
+    }
+
+    private func confirmSelection() {
+        guard let pendingSelection else { return }
+        let confirmedSelection = DestinationDraft(
+            title: pendingSelection.title,
+            subtitle: pendingSelection.subtitle,
+            coordinate: pendingSelection.coordinate,
+            estimatedTravelTime: routePreviewViewModel.route?.expectedTravelTime
+        )
+        searchViewModel.saveRecentDestination(
+            title: confirmedSelection.title,
+            subtitle: confirmedSelection.subtitle,
+            coordinate: confirmedSelection.coordinate
+        )
+        onSelect(confirmedSelection)
+        dismiss()
+    }
+
+    private func isSelected(recentDestination: RecentDestination) -> Bool {
+        guard let pendingSelection else { return false }
+        return abs(pendingSelection.coordinate.latitude - recentDestination.latitude) < 0.00001 &&
+            abs(pendingSelection.coordinate.longitude - recentDestination.longitude) < 0.00001
+    }
+
+    private func isSelected(completion: MKLocalSearchCompletion) -> Bool {
+        guard let pendingSelection else { return false }
+        return pendingSelection.title == completion.title && pendingSelection.subtitle == completion.subtitle
     }
 }
 
@@ -789,6 +1300,476 @@ private struct LeadTimePickerSheet: View {
         .presentationDetents([.fraction(0.35), .medium])
         .presentationDragIndicator(.visible)
     }
+}
+
+private struct JourneyPlanDateTimeSheet: View {
+    @ObservedObject var viewModel: TripSetupViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    DatePicker(
+                        "Travel Date",
+                        selection: Binding(
+                            get: { viewModel.plannedStartDate },
+                            set: { viewModel.updatePlannedStart(from: $0) }
+                        ),
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.graphical)
+
+                    DatePicker(
+                        "Planned Start Time",
+                        selection: Binding(
+                            get: { viewModel.plannedStartDate },
+                            set: { viewModel.updatePlannedStart(from: $0) }
+                        ),
+                        displayedComponents: .hourAndMinute
+                    )
+                    .datePickerStyle(.wheel)
+                    .environment(\.locale, Locale(identifier: "en_GB"))
+
+                    Text("Selected: \(viewModel.plannedStartFormatted)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+            }
+            .navigationTitle("Planned Start")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+private struct JourneyPlanEditorSheet: View {
+    @ObservedObject var viewModel: TripSetupViewModel
+    let existingItems: [JourneyPlanItem]
+    let selectedDate: Date
+    let editingItem: JourneyPlanItem?
+
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var routePreviewViewModel = RoutePreviewViewModel()
+    @State private var isDestinationPickerPresented = false
+    @State private var isDateTimeExpanded = false
+    @State private var destinationDraft: DestinationDraft?
+    @State private var plannedStartAt: Date
+    @State private var estimatedTravelDurationSeconds: TimeInterval
+    @State private var selectedJourneyMode: JourneyMode
+    @State private var leadTimeMinutes: Int
+
+    init(
+        viewModel: TripSetupViewModel,
+        existingItems: [JourneyPlanItem],
+        selectedDate: Date,
+        editingItem: JourneyPlanItem?
+    ) {
+        self.viewModel = viewModel
+        self.existingItems = existingItems
+        self.selectedDate = selectedDate
+        self.editingItem = editingItem
+
+        let calendar = Calendar.current
+        let referenceDate = editingItem?.plannedStartAt ?? viewModel.plannedStartDate
+        let baseDate = calendar.startOfDay(for: selectedDate)
+        let referenceComponents = calendar.dateComponents([.hour, .minute], from: referenceDate)
+        let resolvedStartAt = calendar.date(
+            bySettingHour: referenceComponents.hour ?? 9,
+            minute: referenceComponents.minute ?? 0,
+            second: 0,
+            of: baseDate
+        ) ?? referenceDate
+
+        _plannedStartAt = State(initialValue: resolvedStartAt)
+        _estimatedTravelDurationSeconds = State(initialValue: editingItem?.estimatedTravelDurationSeconds ?? 0)
+        _selectedJourneyMode = State(initialValue: editingItem?.selectedJourneyMode ?? viewModel.selectedJourneyMode)
+        _leadTimeMinutes = State(
+            initialValue: editingItem?.leadTimeMinutes ?? ((viewModel.selectedLeadHours * 60) + viewModel.selectedLeadMinutes)
+        )
+        _destinationDraft = State(
+            initialValue: editingItem.map {
+                DestinationDraft(
+                    title: $0.title,
+                    subtitle: $0.subtitle,
+                    coordinate: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude),
+                    estimatedTravelTime: $0.estimatedTravelDurationSeconds
+                )
+            }
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    RoutePreviewMapView(
+                        viewModel: routePreviewViewModel,
+                        isMonitoringActive: false,
+                        onExpand: nil,
+                        shouldFollowUserWhenMoving: false
+                    )
+                    .frame(height: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isDateTimeExpanded.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Label("Travel Date & Time", systemImage: "calendar.badge.clock")
+                                    .font(.headline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(Self.dateFormatter.string(from: plannedStartAt))
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                    Text(Self.timeFormatter.string(from: plannedStartAt))
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Image(systemName: isDateTimeExpanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(Color(red: 0.19, green: 0.45, blue: 0.93))
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        if isDateTimeExpanded {
+                            DatePicker(
+                                "Travel Date",
+                                selection: dateBinding,
+                                in: dateSelectionRange,
+                                displayedComponents: .date
+                            )
+                            .datePickerStyle(.wheel)
+                            .environment(\.locale, Locale(identifier: "en_GB"))
+                            .labelsHidden()
+
+                            DatePicker(
+                                "Start Time",
+                                selection: startTimeBinding,
+                                in: timeSelectionRange,
+                                displayedComponents: .hourAndMinute
+                            )
+                            .datePickerStyle(.wheel)
+                            .environment(\.locale, Locale(identifier: "en_GB"))
+                            .labelsHidden()
+                        }
+                    }
+                    .padding(14)
+                    .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                    HStack(spacing: 12) {
+                        plannerControlCard(
+                            title: "Journey Mode",
+                            value: selectedJourneyMode.title,
+                            systemImage: selectedJourneyMode.symbolName,
+                            onPrevious: { cycleJourneyMode(by: -1) },
+                            onNext: { cycleJourneyMode(by: 1) }
+                        )
+
+                        plannerControlCard(
+                            title: "Lead Time",
+                            value: leadTimeText,
+                            systemImage: "clock.badge.checkmark",
+                            onPrevious: { adjustLeadTime(by: -5) },
+                            onNext: { adjustLeadTime(by: 5) }
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label("Destination", systemImage: "mappin.and.ellipse")
+                                .font(.headline.weight(.semibold))
+                            Spacer()
+                            Button(destinationDraft == nil ? "Choose" : "Change") {
+                                isDestinationPickerPresented = true
+                            }
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color(red: 0.91, green: 0.93, blue: 0.98), in: Capsule())
+                        }
+
+                        if let destinationDraft {
+                            Text(destinationDraft.title)
+                                .font(.body.weight(.semibold))
+                            if let subtitle = destinationDraft.subtitle, !subtitle.isEmpty {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text("Choose a destination from the map search to calculate the trip.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let routeStatusMessage = routePreviewViewModel.routeStatusMessage {
+                            Text(routeStatusMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Trip Timing")
+                            .font(.headline.weight(.semibold))
+                        timingRow(title: "Start", value: Self.timeFormatter.string(from: plannedStartAt))
+                        timingRow(title: "Approx. End", value: approximateEndTimeText)
+                        timingRow(title: "Journey Mode", value: selectedJourneyMode.title)
+                        timingRow(title: "Lead Time", value: leadTimeText)
+                    }
+                    .padding(14)
+                    .background(Color(red: 0.99, green: 0.94, blue: 0.90), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+                .padding()
+            }
+            .navigationTitle(editingItem == nil ? "Plan Journey" : "Edit Journey")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(editingItem == nil ? "Add" : "Save") {
+                        saveJourneyPlan()
+                    }
+                    .disabled(destinationDraft == nil)
+                }
+            }
+            .sheet(isPresented: $isDestinationPickerPresented) {
+                DestinationMapPickerSheet(initialSelection: destinationDraft) { destination in
+                    destinationDraft = destination
+                    if let estimatedTravelTime = destination.estimatedTravelTime {
+                        estimatedTravelDurationSeconds = estimatedTravelTime
+                    }
+                    routePreviewViewModel.updateDestination(coordinate: destination.coordinate)
+                }
+            }
+            .onAppear {
+                routePreviewViewModel.onAppear()
+                plannedStartAt = clampedPlannedStartAt(plannedStartAt)
+                if let destinationDraft {
+                    routePreviewViewModel.updateDestination(coordinate: destinationDraft.coordinate)
+                }
+            }
+            .onDisappear {
+                routePreviewViewModel.onDisappear()
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var startTimeBinding: Binding<Date> {
+        Binding(
+            get: { plannedStartAt },
+            set: { newValue in
+                let calendar = Calendar.current
+                let day = calendar.startOfDay(for: plannedStartAt)
+                let components = calendar.dateComponents([.hour, .minute], from: newValue)
+                let candidate = calendar.date(
+                    bySettingHour: components.hour ?? 0,
+                    minute: components.minute ?? 0,
+                    second: 0,
+                    of: day
+                ) ?? newValue
+                plannedStartAt = clampedPlannedStartAt(candidate)
+            }
+        )
+    }
+
+    private var dateBinding: Binding<Date> {
+        Binding(
+            get: { plannedStartAt },
+            set: { newValue in
+                let calendar = Calendar.current
+                let time = calendar.dateComponents([.hour, .minute], from: plannedStartAt)
+                let baseDate = calendar.startOfDay(for: newValue)
+                let candidate = calendar.date(
+                    bySettingHour: time.hour ?? 0,
+                    minute: time.minute ?? 0,
+                    second: 0,
+                    of: baseDate
+                ) ?? newValue
+                plannedStartAt = clampedPlannedStartAt(candidate)
+            }
+        )
+    }
+
+    private var dateSelectionRange: ClosedRange<Date> {
+        let calendar = Calendar.current
+        let lowerBound = calendar.startOfDay(for: Date())
+        let upperBound = calendar.date(byAdding: .year, value: 2, to: lowerBound) ?? lowerBound.addingTimeInterval(63_072_000)
+        return lowerBound...upperBound
+    }
+
+    private var timeSelectionRange: ClosedRange<Date> {
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: plannedStartAt)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)?.addingTimeInterval(-60) ?? plannedStartAt
+
+        if calendar.isDateInToday(plannedStartAt) {
+            let minimum = max(clampedCurrentTime, dayStart)
+            return minimum...max(minimum, dayEnd)
+        }
+
+        return dayStart...dayEnd
+    }
+
+    private var resolvedTravelDurationSeconds: TimeInterval {
+        max(routePreviewViewModel.route?.expectedTravelTime ?? estimatedTravelDurationSeconds, 0)
+    }
+
+    private var leadTimeText: String {
+        String(format: "%02d:%02d", leadTimeMinutes / 60, leadTimeMinutes % 60)
+    }
+
+    private var approximateEndTimeText: String {
+        guard destinationDraft != nil else { return "--" }
+        return Self.timeFormatter.string(from: plannedStartAt.addingTimeInterval(resolvedTravelDurationSeconds))
+    }
+
+    private func saveJourneyPlan() {
+        guard let destinationDraft else { return }
+        viewModel.saveJourneyPlanItem(
+            existingItems: existingItems,
+            editing: editingItem,
+            title: destinationDraft.title,
+            subtitle: destinationDraft.subtitle,
+            coordinate: destinationDraft.coordinate,
+            plannedStartAt: plannedStartAt,
+            estimatedTravelDurationSeconds: resolvedTravelDurationSeconds,
+            selectedJourneyMode: selectedJourneyMode,
+            leadTimeMinutes: leadTimeMinutes
+        )
+        dismiss()
+    }
+
+    private var clampedCurrentTime: Date {
+        let calendar = Calendar.current
+        let now = Date()
+        let roundedDown = calendar.date(
+            bySettingHour: calendar.component(.hour, from: now),
+            minute: calendar.component(.minute, from: now),
+            second: 0,
+            of: now
+        ) ?? now
+
+        if calendar.component(.second, from: now) == 0 {
+            return roundedDown
+        }
+
+        return roundedDown.addingTimeInterval(60)
+    }
+
+    private func clampedPlannedStartAt(_ date: Date) -> Date {
+        let calendar = Calendar.current
+        guard calendar.isDateInToday(date) else { return date }
+        let minimum = clampedCurrentTime
+        return max(date, minimum)
+    }
+
+    private func cycleJourneyMode(by delta: Int) {
+        let allModes = JourneyMode.allCases
+        guard let currentIndex = allModes.firstIndex(of: selectedJourneyMode) else { return }
+        let nextIndex = (currentIndex + delta + allModes.count) % allModes.count
+        selectedJourneyMode = allModes[nextIndex]
+    }
+
+    private func adjustLeadTime(by deltaMinutes: Int) {
+        let minimum = 5
+        let maximum = (23 * 60) + 55
+        leadTimeMinutes = min(max(leadTimeMinutes + deltaMinutes, minimum), maximum)
+    }
+
+    @ViewBuilder
+    private func plannerControlCard(
+        title: String,
+        value: String,
+        systemImage: String,
+        onPrevious: @escaping () -> Void,
+        onNext: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Button(action: onPrevious) {
+                    Image(systemName: "chevron.left")
+                        .font(.subheadline.weight(.bold))
+                        .frame(width: 30, height: 30)
+                        .background(Color.white.opacity(0.9), in: Circle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer(minLength: 0)
+
+                Text(value)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+
+                Spacer(minLength: 0)
+
+                Button(action: onNext) {
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.bold))
+                        .frame(width: 30, height: 30)
+                        .background(Color.white.opacity(0.9), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func timingRow(title: String, value: String) -> some View {
+        HStack {
+            Text(title)
+                .fontWeight(.semibold)
+            Spacer()
+            Text(value)
+                .multilineTextAlignment(.trailing)
+        }
+        .font(.caption)
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
 }
 
 private struct MonitoringHistoryBottomSheet: View {
@@ -977,6 +1958,10 @@ private final class DestinationSearchViewModel: NSObject, ObservableObject, MKLo
     private let defaults = UserDefaults.standard
     private let recentDestinationsKey = "tripsetup.recent.destinations"
     private let maxRecentCount = 8
+    private let queryDebounceNanoseconds: UInt64 = 250_000_000
+    private var queryTask: Task<Void, Never>?
+    private var activeResolveID: UUID?
+    private var activeSearch: MKLocalSearch?
 
     override init() {
         super.init()
@@ -985,45 +1970,83 @@ private final class DestinationSearchViewModel: NSObject, ObservableObject, MKLo
         loadRecentDestinations()
     }
 
+    deinit {
+        queryTask?.cancel()
+        activeSearch?.cancel()
+        completer.delegate = nil
+    }
+
     func updateQuery(_ query: String) {
+        queryTask?.cancel()
+
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             results = []
             errorMessage = nil
+            activeSearch?.cancel()
+            activeSearch = nil
             return
         }
-        completer.queryFragment = trimmed
+        errorMessage = nil
+
+        queryTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: self.queryDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self.completer.queryFragment = trimmed
+            }
+        }
     }
 
     @MainActor
     func resolve(_ completion: MKLocalSearchCompletion) async -> MKMapItem? {
+        let resolveID = UUID()
+        activeResolveID = resolveID
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+        activeSearch?.cancel()
 
         do {
             let request = MKLocalSearch.Request(completion: completion)
-            let response = try await MKLocalSearch(request: request).start()
+            let search = MKLocalSearch(request: request)
+            activeSearch = search
+            let response = try await search.start()
+            guard activeResolveID == resolveID else { return nil }
+            isLoading = false
+            activeResolveID = nil
+            activeSearch = nil
             guard let mapItem = response.mapItems.first else {
                 errorMessage = "Could not resolve this place. Try another result."
                 return nil
             }
             return mapItem
+        } catch is CancellationError {
+            if activeResolveID == resolveID {
+                isLoading = false
+                activeResolveID = nil
+                activeSearch = nil
+            }
+            return nil
         } catch {
+            guard activeResolveID == resolveID else { return nil }
+            isLoading = false
+            activeResolveID = nil
+            activeSearch = nil
             errorMessage = "Unable to fetch location from Apple Maps."
             return nil
         }
     }
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.results = completer.results
             self?.errorMessage = nil
         }
     }
 
     func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.results = []
             self?.errorMessage = "Search failed. Check network and try again."
         }
@@ -1089,6 +2112,13 @@ private struct RecentDestination: Codable, Identifiable {
     }
 }
 
+private struct DestinationDraft {
+    let title: String
+    let subtitle: String?
+    let coordinate: CLLocationCoordinate2D
+    let estimatedTravelTime: TimeInterval?
+}
+
 private struct RoutePreviewMapView: View {
     @ObservedObject var viewModel: RoutePreviewViewModel
     let isMonitoringActive: Bool
@@ -1101,13 +2131,25 @@ private struct RoutePreviewMapView: View {
                 currentCoordinate: viewModel.currentCoordinate,
                 destinationCoordinate: viewModel.destinationCoordinate,
                 routePolyline: viewModel.route?.polyline,
+                focusRequestToken: viewModel.focusRequestToken,
                 shouldFollowUserWhenMoving: shouldFollowUserWhenMoving
             )
 
-            if let onExpand {
-                VStack {
-                    HStack {
-                        Spacer()
+            VStack {
+                HStack(spacing: 10) {
+                    Spacer()
+                    Button {
+                        viewModel.focusOnCurrentRoute()
+                    } label: {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .padding(10)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if let onExpand {
                         Button(action: onExpand) {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
                                 .font(.system(size: 14, weight: .semibold))
@@ -1117,10 +2159,10 @@ private struct RoutePreviewMapView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    Spacer()
                 }
-                .padding(10)
+                Spacer()
             }
+            .padding(10)
 
             if viewModel.isLoadingRoute {
                 ProgressView("Loading route...")
@@ -1260,6 +2302,7 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
     let currentCoordinate: CLLocationCoordinate2D?
     let destinationCoordinate: CLLocationCoordinate2D?
     let routePolyline: MKPolyline?
+    let focusRequestToken: Int
     let shouldFollowUserWhenMoving: Bool
 
     func makeCoordinator() -> Coordinator {
@@ -1285,18 +2328,21 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
             currentCoordinate: currentCoordinate,
             destinationCoordinate: destinationCoordinate,
             routePolyline: routePolyline,
+            focusRequestToken: focusRequestToken,
             shouldFollowUserWhenMoving: shouldFollowUserWhenMoving
         )
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
         private var lastFollowLocation: CLLocation?
+        private var lastFocusRequestToken = 0
 
         func update(
             mapView: MKMapView,
             currentCoordinate: CLLocationCoordinate2D?,
             destinationCoordinate: CLLocationCoordinate2D?,
             routePolyline: MKPolyline?,
+            focusRequestToken: Int,
             shouldFollowUserWhenMoving: Bool
         ) {
             mapView.removeAnnotations(mapView.annotations)
@@ -1342,6 +2388,10 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
                     mapView.addOverlay(overlay, level: .aboveRoads)
                     mergeIntoVisibleRect(overlay.boundingMapRect)
                 }
+            }
+
+            if focusRequestToken != lastFocusRequestToken {
+                lastFocusRequestToken = focusRequestToken
             }
 
             if shouldFollowUserWhenMoving, let currentCoordinate {
@@ -1462,28 +2512,32 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
     @Published var route: MKRoute?
     @Published var isLoadingRoute = false
     @Published var routeStatusMessage: String?
+    @Published var focusRequestToken = 0
 
     private let locationManager = CLLocationManager()
     private var routeTask: Task<Void, Never>?
+    private var activeDirections: MKDirections?
     private var lastAcceptedLocation: CLLocation?
+    private var activeRouteRequestID: UUID?
+    private var lastLocationRequestAt: Date?
 
     private let maximumHorizontalAccuracyMeters: CLLocationAccuracy = 80
     private let maximumLocationAgeSeconds: TimeInterval = 20
+    private let minimumLocationRequestIntervalSeconds: TimeInterval = 2
 
     override init() {
         super.init()
         locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
-        locationManager.distanceFilter = 5
-        locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        locationManager.distanceFilter = 25
+        locationManager.pausesLocationUpdatesAutomatically = true
     }
 
     func onAppear() {
         locationManager.requestWhenInUseAuthorization()
         if locationManager.authorizationStatus == .authorizedWhenInUse ||
             locationManager.authorizationStatus == .authorizedAlways {
-            locationManager.startUpdatingLocation()
-            locationManager.requestLocation()
+            requestCurrentLocationIfNeeded(force: true)
             if locationManager.accuracyAuthorization == .reducedAccuracy {
                 routeStatusMessage = "Approximate location enabled. Turn on Precise Location for accurate map route."
             }
@@ -1494,7 +2548,7 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
 
     func onDisappear() {
         locationManager.stopUpdatingLocation()
-        routeTask?.cancel()
+        cancelRouteComputation()
     }
 
     func updateDestination(latitudeText: String, longitudeText: String) {
@@ -1521,16 +2575,23 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
         refreshRouteIfPossible()
     }
 
+    func focusOnCurrentRoute() {
+        requestCurrentLocationIfNeeded(force: true)
+        focusRequestToken += 1
+    }
+
     private func refreshRouteIfPossible() {
         guard let currentCoordinate, let destinationCoordinate else {
+            cancelRouteComputation()
             route = nil
             if destinationCoordinate != nil {
                 routeStatusMessage = "Waiting for current location..."
+                requestCurrentLocationIfNeeded()
             }
             return
         }
 
-        routeTask?.cancel()
+        cancelRouteComputation()
         isLoadingRoute = true
 
         let request = MKDirections.Request()
@@ -1538,20 +2599,28 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destinationCoordinate))
         request.transportType = .automobile
         request.requestsAlternateRoutes = false
+        let directions = MKDirections(request: request)
+        let requestID = UUID()
+        activeDirections = directions
+        activeRouteRequestID = requestID
 
         routeTask = Task { [weak self] in
             do {
-                let response = try await MKDirections(request: request).calculate()
+                let response = try await directions.calculate()
                 guard !Task.isCancelled else { return }
-                await self?.applyRouteResponse(response)
+                await self?.applyRouteResponse(response, requestID: requestID)
+            } catch is CancellationError {
+                await self?.handleCancelledRoute(requestID: requestID)
             } catch {
                 guard !Task.isCancelled else { return }
-                await self?.applyRouteError(error)
+                await self?.applyRouteError(error, requestID: requestID)
             }
         }
     }
 
-    private func applyRouteResponse(_ response: MKDirections.Response) {
+    private func applyRouteResponse(_ response: MKDirections.Response, requestID: UUID) {
+        guard activeRouteRequestID == requestID else { return }
+        finishRouteRequest()
         isLoadingRoute = false
         guard let firstRoute = response.routes.first else {
             route = nil
@@ -1562,17 +2631,24 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
         routeStatusMessage = "Route preview is ready."
     }
 
-    private func applyRouteError(_ error: Error) {
+    private func applyRouteError(_ error: Error, requestID: UUID) {
+        guard activeRouteRequestID == requestID else { return }
+        finishRouteRequest()
         isLoadingRoute = false
         route = nil
         routeStatusMessage = "Unable to load route preview right now."
     }
 
+    private func handleCancelledRoute(requestID: UUID) {
+        guard activeRouteRequestID == requestID else { return }
+        finishRouteRequest()
+        isLoadingRoute = false
+    }
+
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
         if status == .authorizedWhenInUse || status == .authorizedAlways {
-            manager.startUpdatingLocation()
-            manager.requestLocation()
+            requestCurrentLocationIfNeeded(force: true)
             if manager.accuracyAuthorization == .reducedAccuracy {
                 routeStatusMessage = "Approximate location enabled. Turn on Precise Location for better accuracy."
             }
@@ -1607,6 +2683,32 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         routeStatusMessage = "Could not read current location for route preview."
+    }
+
+    private func requestCurrentLocationIfNeeded(force: Bool = false) {
+        let now = Date()
+        if !force,
+           let lastLocationRequestAt,
+           now.timeIntervalSince(lastLocationRequestAt) < minimumLocationRequestIntervalSeconds {
+            return
+        }
+        lastLocationRequestAt = now
+        locationManager.requestLocation()
+    }
+
+    private func cancelRouteComputation() {
+        routeTask?.cancel()
+        routeTask = nil
+        activeDirections?.cancel()
+        activeDirections = nil
+        activeRouteRequestID = nil
+        isLoadingRoute = false
+    }
+
+    private func finishRouteRequest() {
+        routeTask = nil
+        activeDirections = nil
+        activeRouteRequestID = nil
     }
 
     private func bestAcceptableLocation(from locations: [CLLocation]) -> CLLocation? {

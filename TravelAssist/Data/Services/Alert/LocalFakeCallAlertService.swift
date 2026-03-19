@@ -4,6 +4,7 @@ import CallKit
 import Foundation
 import UIKit
 import UserNotifications
+import MetricKit
 
 final class LocalFakeCallAlertService: NSObject, FakeCallAlertService {
     private let center = UNUserNotificationCenter.current()

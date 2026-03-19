@@ -7,6 +7,7 @@ protocol BackgroundTaskScheduler {
 }
 
 final class IOSBackgroundTaskScheduler: BackgroundTaskScheduler {
+    private let refreshIntervalSeconds: TimeInterval = 30 * 60
     private var refreshHandler: (() -> Void)?
     private var isRegistered = false
 
@@ -26,9 +27,10 @@ final class IOSBackgroundTaskScheduler: BackgroundTaskScheduler {
         guard isRegistered else { return }
 
         let request = BGAppRefreshTaskRequest(identifier: AppConstants.backgroundRefreshTaskID)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: refreshIntervalSeconds)
 
         do {
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: AppConstants.backgroundRefreshTaskID)
             try BGTaskScheduler.shared.submit(request)
         } catch {
             // Best-effort scheduling; ignored if system declines.

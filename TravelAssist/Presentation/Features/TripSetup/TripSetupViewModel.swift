@@ -10,6 +10,7 @@ final class TripSetupViewModel: ObservableObject {
     @Published var selectedJourneyMode: JourneyMode = .car
     @Published var selectedLeadHours = 0
     @Published var selectedLeadMinutes = 10
+    @Published var plannedStartDate = Date()
 
     @Published var errorMessage: String?
 
@@ -20,6 +21,8 @@ final class TripSetupViewModel: ObservableObject {
     private let prepareCurrentLocationUseCase: PrepareCurrentLocationUseCase
     private let startUseCase: StartTripMonitoringUseCase
     private let updateJourneyModeUseCase: UpdateJourneyModeUseCase
+    private let addJourneyPlanItemUseCase: AddJourneyPlanItemUseCase
+    private let replaceJourneyPlanItemsUseCase: ReplaceJourneyPlanItemsUseCase
     private let recordTripUserActionUseCase: RecordTripUserActionUseCase
     private let triggerTestFakeCallUseCase: TriggerTestFakeCallUseCase
     private let defaults = UserDefaults.standard
@@ -30,6 +33,8 @@ final class TripSetupViewModel: ObservableObject {
         prepareCurrentLocationUseCase: PrepareCurrentLocationUseCase,
         startUseCase: StartTripMonitoringUseCase,
         updateJourneyModeUseCase: UpdateJourneyModeUseCase,
+        addJourneyPlanItemUseCase: AddJourneyPlanItemUseCase,
+        replaceJourneyPlanItemsUseCase: ReplaceJourneyPlanItemsUseCase,
         recordTripUserActionUseCase: RecordTripUserActionUseCase,
         triggerTestFakeCallUseCase: TriggerTestFakeCallUseCase
     ) {
@@ -37,6 +42,8 @@ final class TripSetupViewModel: ObservableObject {
         self.prepareCurrentLocationUseCase = prepareCurrentLocationUseCase
         self.startUseCase = startUseCase
         self.updateJourneyModeUseCase = updateJourneyModeUseCase
+        self.addJourneyPlanItemUseCase = addJourneyPlanItemUseCase
+        self.replaceJourneyPlanItemsUseCase = replaceJourneyPlanItemsUseCase
         self.recordTripUserActionUseCase = recordTripUserActionUseCase
         self.triggerTestFakeCallUseCase = triggerTestFakeCallUseCase
     }
@@ -46,31 +53,65 @@ final class TripSetupViewModel: ObservableObject {
         prepareCurrentLocationUseCase.execute()
     }
 
-    func startMonitoring() {
-        guard let latitude = Double(destinationLatitudeText),
-              let longitude = Double(destinationLongitudeText) else {
-            errorMessage = "Enter valid destination coordinates."
+    func startMonitoring(using journeyPlanItems: [JourneyPlanItem] = []) {
+        let selectedPlanItem = resolvedPlanItemForStart(from: journeyPlanItems)
+
+        let destination: CLLocationCoordinate2D
+        let leadTime: Int
+        let journeyMode: JourneyMode
+        let startCoordinateOverride: CLLocationCoordinate2D?
+
+        if let latitude = Double(destinationLatitudeText),
+           let longitude = Double(destinationLongitudeText) {
+            destination = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+            leadTime = resolvedLeadTimeMinutes()
+            journeyMode = selectedJourneyMode
+            startCoordinateOverride = nil
+        } else if let selectedPlanItem {
+            applyJourneyPlanSelection(selectedPlanItem)
+            destination = CLLocationCoordinate2D(
+                latitude: selectedPlanItem.latitude,
+                longitude: selectedPlanItem.longitude
+            )
+            leadTime = selectedPlanItem.leadTimeMinutes
+            journeyMode = selectedPlanItem.selectedJourneyMode
+            startCoordinateOverride = plannedStartCoordinate(for: selectedPlanItem)
+        } else {
+            errorMessage = "Choose a destination or add a trip for today to start."
             return
         }
 
-        let leadTime = resolvedLeadTimeMinutes()
         guard leadTime > 0 else {
             errorMessage = "Lead time must be at least 00:01."
             return
         }
 
-        let destination = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         prepareCurrentLocationUseCase.execute()
 
         do {
-            let session = try buildTripSessionUseCase.execute(
+            let builtSession = try buildTripSessionUseCase.execute(
                 destination: destination,
                 leadTimeMinutes: leadTime,
-                selectedJourneyMode: selectedJourneyMode
+                selectedJourneyMode: journeyMode,
+                startCoordinateOverride: startCoordinateOverride
+            )
+            let session = TripSession(
+                id: builtSession.id,
+                startCoordinate: builtSession.startCoordinate,
+                destinationCoordinate: builtSession.destinationCoordinate,
+                leadTimeMinutes: builtSession.leadTimeMinutes,
+                selectedJourneyMode: builtSession.selectedJourneyMode,
+                journeyPlanItemID: selectedPlanItem?.id,
+                startedAt: builtSession.startedAt
             )
             startUseCase.execute(session: session)
             persistCurrentSetup()
             errorMessage = nil
+            if let selectedPlanItem {
+                recordTripUserActionUseCase.execute(
+                    status: "Started planned trip to \(selectedPlanItem.title)"
+                )
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -96,6 +137,10 @@ final class TripSetupViewModel: ObservableObject {
         String(format: "%02d:%02d", selectedLeadHours, selectedLeadMinutes)
     }
 
+    var plannedStartFormatted: String {
+        Self.plannedStartFormatter.string(from: plannedStartDate)
+    }
+
     var leadTimePickerDate: Date {
         var components = DateComponents()
         components.year = 2001
@@ -113,6 +158,14 @@ final class TripSetupViewModel: ObservableObject {
         persistCurrentSetup()
         recordTripUserActionUseCase.execute(
             status: "Lead time changed to \(leadTimeFormatted)"
+        )
+    }
+
+    func updatePlannedStart(from date: Date) {
+        plannedStartDate = date
+        persistCurrentSetup()
+        recordTripUserActionUseCase.execute(
+            status: "Planned start changed to \(plannedStartFormatted)"
         )
     }
 
@@ -143,8 +196,242 @@ final class TripSetupViewModel: ObservableObject {
         recordTripUserActionUseCase.execute(status: payload)
     }
 
+    func changeActiveMonitoringDestination(name: String, coordinate: CLLocationCoordinate2D) {
+        applyDestinationFromAppleMaps(name: name, coordinate: coordinate)
+        prepareCurrentLocationUseCase.execute()
+
+        do {
+            let session = try buildTripSessionUseCase.execute(
+                destination: coordinate,
+                leadTimeMinutes: resolvedLeadTimeMinutes(),
+                selectedJourneyMode: selectedJourneyMode,
+                startCoordinateOverride: nil
+            )
+            startUseCase.execute(session: session)
+            persistCurrentSetup()
+            errorMessage = nil
+            recordTripUserActionUseCase.execute(
+                status: "Active monitoring changed to \(name)"
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func addDestinationToJourneyPlan(
+        existingItems: [JourneyPlanItem],
+        name: String,
+        subtitle: String? = nil,
+        coordinate: CLLocationCoordinate2D,
+        estimatedTravelDurationSeconds: TimeInterval? = nil
+    ) {
+        let item = JourneyPlanItem(
+            title: name,
+            subtitle: subtitle,
+            startLatitude: nil,
+            startLongitude: nil,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            plannedStartAt: plannedStartDate,
+            estimatedTravelDurationSeconds: resolvedEstimatedTravelDuration(estimatedTravelDurationSeconds),
+            selectedJourneyMode: selectedJourneyMode,
+            leadTimeMinutes: resolvedLeadTimeMinutes()
+        )
+        var updatedItems = existingItems
+        updatedItems.append(item)
+        updatedItems = recomputeJourneyPlanSchedules(
+            affectedDates: [plannedStartDate],
+            items: updatedItems
+        )
+
+        replaceJourneyPlanItemsUseCase.execute(items: updatedItems)
+        persistCurrentSetup()
+        errorMessage = nil
+        recordTripUserActionUseCase.execute(
+            status: "Destination added to journey plan: \(name)"
+        )
+    }
+
+    func saveJourneyPlanItem(
+        existingItems: [JourneyPlanItem],
+        editing itemToEdit: JourneyPlanItem?,
+        title: String,
+        subtitle: String?,
+        coordinate: CLLocationCoordinate2D,
+        plannedStartAt: Date,
+        estimatedTravelDurationSeconds: TimeInterval,
+        selectedJourneyMode: JourneyMode,
+        leadTimeMinutes: Int
+    ) {
+        let resolvedDuration = resolvedEstimatedTravelDuration(
+            estimatedTravelDurationSeconds,
+            minimumLeadTimeMinutes: leadTimeMinutes
+        )
+        let replacement = JourneyPlanItem(
+            id: itemToEdit?.id ?? UUID(),
+            title: title,
+            subtitle: subtitle,
+            startLatitude: itemToEdit?.startLatitude,
+            startLongitude: itemToEdit?.startLongitude,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            plannedStartAt: plannedStartAt,
+            estimatedTravelDurationSeconds: resolvedDuration,
+            selectedJourneyMode: selectedJourneyMode,
+            leadTimeMinutes: leadTimeMinutes,
+            status: itemToEdit?.status ?? .started,
+            createdAt: itemToEdit?.createdAt ?? .now
+        )
+
+        var updatedItems = existingItems.filter { $0.id != replacement.id }
+        updatedItems.append(replacement)
+        updatedItems = recomputeJourneyPlanSchedules(
+            affectedDates: [itemToEdit?.plannedStartAt, plannedStartAt],
+            items: updatedItems
+        )
+
+        replaceJourneyPlanItemsUseCase.execute(items: updatedItems)
+        plannedStartDate = plannedStartAt
+        persistCurrentSetup()
+        errorMessage = nil
+        recordTripUserActionUseCase.execute(
+            status: itemToEdit == nil
+            ? "Journey plan created for \(title)"
+            : "Journey plan updated for \(title)"
+        )
+    }
+
     private func resolvedLeadTimeMinutes() -> Int {
         (selectedLeadHours * 60) + selectedLeadMinutes
+    }
+
+    private func resolvedPlanItemForStart(from items: [JourneyPlanItem]) -> JourneyPlanItem? {
+        items
+            .filter {
+                Calendar.current.isDateInToday($0.plannedStartAt) &&
+                $0.status == .started
+            }
+            .sorted { lhs, rhs in
+                if lhs.plannedStartAt == rhs.plannedStartAt {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.plannedStartAt < rhs.plannedStartAt
+            }
+            .first
+    }
+
+    private func applyJourneyPlanSelection(_ item: JourneyPlanItem) {
+        selectedDestinationName = item.title
+        destinationLatitudeText = String(format: "%.7f", item.latitude)
+        destinationLongitudeText = String(format: "%.7f", item.longitude)
+        selectedJourneyMode = item.selectedJourneyMode
+        selectedLeadHours = max(item.leadTimeMinutes / 60, 0)
+        selectedLeadMinutes = max(item.leadTimeMinutes % 60, 0)
+        plannedStartDate = item.plannedStartAt
+        persistCurrentSetup()
+    }
+
+    private func resolvedEstimatedTravelDuration(
+        _ duration: TimeInterval?,
+        minimumLeadTimeMinutes: Int? = nil
+    ) -> TimeInterval {
+        let minimumLeadTime = minimumLeadTimeMinutes ?? resolvedLeadTimeMinutes()
+        return max(duration ?? 0, Double(max(minimumLeadTime, 5) * 60))
+    }
+
+    private func recomputeJourneyPlanSchedules(
+        affectedDates: [Date?],
+        items: [JourneyPlanItem]
+    ) -> [JourneyPlanItem] {
+        let calendar = Calendar.current
+        let targetDays = Set(
+            affectedDates.compactMap { date in
+                date.map { calendar.startOfDay(for: $0) }
+            }
+        )
+
+        guard !targetDays.isEmpty else {
+            return sortedJourneyPlanItems(items)
+        }
+
+        var recalculatedItems = items
+        for day in targetDays {
+            recalculatedItems = recomputeJourneyPlanSchedule(for: day, items: recalculatedItems)
+        }
+        return sortedJourneyPlanItems(recalculatedItems)
+    }
+
+    private func recomputeJourneyPlanSchedule(for date: Date, items: [JourneyPlanItem]) -> [JourneyPlanItem] {
+        let calendar = Calendar.current
+        let targetItems = items
+            .filter { calendar.isDate($0.plannedStartAt, inSameDayAs: date) }
+            .sorted { lhs, rhs in
+                if lhs.plannedStartAt == rhs.plannedStartAt {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.plannedStartAt < rhs.plannedStartAt
+            }
+
+        var previousEndAt: Date?
+        var previousDestinationCoordinate: CLLocationCoordinate2D?
+        var recalculatedByID = [UUID: JourneyPlanItem]()
+
+        for item in targetItems {
+            if item.status == .completed {
+                recalculatedByID[item.id] = item
+                previousEndAt = max(previousEndAt ?? item.approximateEndAt, item.approximateEndAt)
+                previousDestinationCoordinate = CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)
+                continue
+            }
+
+            let adjustedStartAt: Date
+            if let previousEndAt, previousEndAt > item.plannedStartAt {
+                adjustedStartAt = previousEndAt
+            } else {
+                adjustedStartAt = item.plannedStartAt
+            }
+
+            let recalculated = JourneyPlanItem(
+                id: item.id,
+                title: item.title,
+                subtitle: item.subtitle,
+                startLatitude: previousDestinationCoordinate?.latitude,
+                startLongitude: previousDestinationCoordinate?.longitude,
+                latitude: item.latitude,
+                longitude: item.longitude,
+                plannedStartAt: adjustedStartAt,
+                estimatedTravelDurationSeconds: item.estimatedTravelDurationSeconds,
+                selectedJourneyMode: item.selectedJourneyMode,
+                leadTimeMinutes: item.leadTimeMinutes,
+                status: item.status,
+                createdAt: item.createdAt
+            )
+            recalculatedByID[item.id] = recalculated
+            previousEndAt = recalculated.approximateEndAt
+            previousDestinationCoordinate = CLLocationCoordinate2D(
+                latitude: recalculated.latitude,
+                longitude: recalculated.longitude
+            )
+        }
+
+        return items.map { recalculatedByID[$0.id] ?? $0 }
+    }
+
+    private func sortedJourneyPlanItems(_ items: [JourneyPlanItem]) -> [JourneyPlanItem] {
+        items.sorted { lhs, rhs in
+            if lhs.plannedStartAt == rhs.plannedStartAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.plannedStartAt < rhs.plannedStartAt
+        }
+    }
+
+    private func plannedStartCoordinate(for item: JourneyPlanItem) -> CLLocationCoordinate2D? {
+        guard let startLatitude = item.startLatitude,
+              let startLongitude = item.startLongitude else {
+            return nil
+        }
+        return CLLocationCoordinate2D(latitude: startLatitude, longitude: startLongitude)
     }
 
     private func persistCurrentSetup() {
@@ -154,7 +441,8 @@ final class TripSetupViewModel: ObservableObject {
             selectedDestinationName: selectedDestinationName,
             selectedJourneyModeRaw: selectedJourneyMode.rawValue,
             selectedLeadHours: selectedLeadHours,
-            selectedLeadMinutes: selectedLeadMinutes
+            selectedLeadMinutes: selectedLeadMinutes,
+            plannedStartDate: plannedStartDate
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         defaults.set(data, forKey: persistedSetupKey)
@@ -172,7 +460,15 @@ final class TripSetupViewModel: ObservableObject {
         selectedJourneyMode = JourneyMode(rawValue: payload.selectedJourneyModeRaw) ?? .car
         selectedLeadHours = min(max(payload.selectedLeadHours, 0), 23)
         selectedLeadMinutes = min(max(payload.selectedLeadMinutes, 0), 59)
+        plannedStartDate = payload.plannedStartDate
     }
+
+    private static let plannedStartFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 }
 
 private struct PersistedTripSetupState: Codable {
@@ -182,4 +478,5 @@ private struct PersistedTripSetupState: Codable {
     let selectedJourneyModeRaw: String
     let selectedLeadHours: Int
     let selectedLeadMinutes: Int
+    let plannedStartDate: Date
 }

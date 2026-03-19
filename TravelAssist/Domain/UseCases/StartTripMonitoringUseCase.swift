@@ -47,3 +47,35 @@ struct RecordTripUserActionUseCaseImpl: RecordTripUserActionUseCase {
         repository.recordUserAction(status)
     }
 }
+
+protocol AddJourneyPlanItemUseCase {
+    func execute(item: JourneyPlanItem)
+}
+
+struct AddJourneyPlanItemUseCaseImpl: AddJourneyPlanItemUseCase {
+    private let repository: TripMonitoringRepository
+
+    init(repository: TripMonitoringRepository) {
+        self.repository = repository
+    }
+
+    func execute(item: JourneyPlanItem) {
+        repository.addJourneyPlanItem(item)
+    }
+}
+
+protocol ReplaceJourneyPlanItemsUseCase {
+    func execute(items: [JourneyPlanItem])
+}
+
+struct ReplaceJourneyPlanItemsUseCaseImpl: ReplaceJourneyPlanItemsUseCase {
+    private let repository: TripMonitoringRepository
+
+    init(repository: TripMonitoringRepository) {
+        self.repository = repository
+    }
+
+    func execute(items: [JourneyPlanItem]) {
+        repository.replaceJourneyPlanItems(items)
+    }
+}

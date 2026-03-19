@@ -5,6 +5,7 @@ protocol ObserveTripStateUseCase {
     func sessionStream() -> AnyPublisher<TripSession?, Never>
     func snapshotStream() -> AnyPublisher<TravelSnapshot?, Never>
     func historyStream() -> AnyPublisher<[TripHistorySession], Never>
+    func journeyPlanStream() -> AnyPublisher<[JourneyPlanItem], Never>
 }
 
 struct ObserveTripStateUseCaseImpl: ObserveTripStateUseCase {
@@ -24,5 +25,9 @@ struct ObserveTripStateUseCaseImpl: ObserveTripStateUseCase {
 
     func historyStream() -> AnyPublisher<[TripHistorySession], Never> {
         repository.historyPublisher
+    }
+
+    func journeyPlanStream() -> AnyPublisher<[JourneyPlanItem], Never> {
+        repository.journeyPlanPublisher
     }
 }
