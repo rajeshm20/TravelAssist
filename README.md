@@ -1,4 +1,10 @@
 # TravelAssist (SwiftUI) Blueprint
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 45 30" src="https://github.com/user-attachments/assets/b23c2578-2196-4416-bab1-9bb68cf3efb5" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 46 08" src="https://github.com/user-attachments/assets/67c16c82-4a2c-4ff4-b97b-5b20d80e0f31" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 46 19" src="https://github.com/user-attachments/assets/0fee76a1-540a-4bbf-82f3-a12e217bc888" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 46 30" src="https://github.com/user-attachments/assets/ced847dd-d0f5-4b43-90b8-6b36bb3a4b5c" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 46 59" src="https://github.com/user-attachments/assets/606359a4-8ce0-4e6d-9320-f5e1a1bacffc" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 44 34" src="https://github.com/user-attachments/assets/76babf6b-4f71-4334-bb26-9494edc6613b" />
 
 This is a production-oriented starter architecture for your app idea:
 
