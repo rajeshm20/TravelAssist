@@ -151,6 +151,114 @@ struct JourneyPlanSchedulingTests {
         #expect(updatedNext.startLongitude == completed.longitude)
     }
 
+    @Test("Starting a trip earlier than planned shifts subsequent trips earlier when recalculating")
+    func testEarlyStartChainsRemainingTripsEarlier() async throws {
+        let suiteName = "TravelAssistTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let repository = TripMonitoringRepositoryImpl(
+            locationService: TestLocationService(),
+            etaEstimator: TestETAEstimator(),
+            alertService: TestFakeCallAlertService(),
+            backgroundTaskScheduler: TestBackgroundTaskScheduler(),
+            widgetSyncService: TestWidgetSyncService(),
+            defaults: defaults
+        )
+
+        var latestItems: [JourneyPlanItem] = []
+        let cancellable = repository.journeyPlanPublisher.sink { latestItems = $0 }
+        defer { cancellable.cancel() }
+
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_700_000_000))
+
+        let trip1Planned = dayStart.addingTimeInterval(9 * 3600)
+        let trip1End = trip1Planned.addingTimeInterval(10 * 60)
+
+        let trip2UserPlanned = dayStart.addingTimeInterval(12 * 3600)
+        let trip3UserPlanned = dayStart.addingTimeInterval(13 * 3600)
+
+        let trip1ID = UUID(uuidString: "10101010-1010-1010-1010-101010101010")!
+        let trip2ID = UUID(uuidString: "20202020-2020-2020-2020-202020202020")!
+        let trip3ID = UUID(uuidString: "30303030-3030-3030-3030-303030303030")!
+
+        let completedTrip1 = JourneyPlanItem(
+            id: trip1ID,
+            title: "Trip 1",
+            subtitle: nil,
+            latitude: 11,
+            longitude: 12,
+            userPlannedStartAt: trip1Planned,
+            plannedStartAt: trip1Planned,
+            approximateEndAt: trip1End,
+            estimatedTravelDurationSeconds: 0,
+            selectedJourneyMode: .car,
+            leadTimeMinutes: 5,
+            status: .completed,
+            createdAt: trip1Planned
+        )
+
+        let trip2 = JourneyPlanItem(
+            id: trip2ID,
+            title: "Trip 2",
+            subtitle: nil,
+            latitude: 21,
+            longitude: 22,
+            userPlannedStartAt: trip2UserPlanned,
+            plannedStartAt: trip2UserPlanned,
+            estimatedTravelDurationSeconds: 10 * 60,
+            selectedJourneyMode: .car,
+            leadTimeMinutes: 5,
+            status: .started,
+            createdAt: trip2UserPlanned
+        )
+
+        let trip3 = JourneyPlanItem(
+            id: trip3ID,
+            title: "Trip 3",
+            subtitle: nil,
+            latitude: 31,
+            longitude: 32,
+            userPlannedStartAt: trip3UserPlanned,
+            plannedStartAt: trip3UserPlanned,
+            estimatedTravelDurationSeconds: 10 * 60,
+            selectedJourneyMode: .car,
+            leadTimeMinutes: 5,
+            status: .started,
+            createdAt: trip3UserPlanned
+        )
+
+        repository.addJourneyPlanItem(completedTrip1)
+        repository.addJourneyPlanItem(trip2)
+        repository.addJourneyPlanItem(trip3)
+
+        // With no actual deviation yet, planned times should remain at the user planned times.
+        let baselineTrip2 = try #require(latestItems.first(where: { $0.id == trip2ID }))
+        let baselineTrip3 = try #require(latestItems.first(where: { $0.id == trip3ID }))
+        #expect(baselineTrip2.plannedStartAt == trip2UserPlanned)
+        #expect(baselineTrip3.plannedStartAt == trip3UserPlanned)
+
+        // User starts Trip 2 much earlier than planned; recompute should chain Trip 3 earlier too.
+        let actualTrip2Start = dayStart.addingTimeInterval(9 * 3600 + 20 * 60)
+        repository.start(
+            session: TripSession(
+                startCoordinate: CLLocationCoordinate2D(latitude: completedTrip1.latitude, longitude: completedTrip1.longitude),
+                destinationCoordinate: CLLocationCoordinate2D(latitude: trip2.latitude, longitude: trip2.longitude),
+                leadTimeMinutes: trip2.leadTimeMinutes,
+                selectedJourneyMode: trip2.selectedJourneyMode,
+                journeyPlanItemID: trip2ID,
+                startedAt: actualTrip2Start
+            )
+        )
+
+        let updatedTrip2 = try #require(latestItems.first(where: { $0.id == trip2ID }))
+        let updatedTrip3 = try #require(latestItems.first(where: { $0.id == trip3ID }))
+        #expect(updatedTrip2.plannedStartAt == actualTrip2Start)
+        #expect(updatedTrip3.plannedStartAt == updatedTrip2.approximateEndAt)
+    }
+
     @Test("Adding trips on different dates preserves all days")
     func testAddJourneyPlanItemDoesNotOverwriteOtherDays() async throws {
         let suiteName = "TravelAssistTests.\(UUID().uuidString)"

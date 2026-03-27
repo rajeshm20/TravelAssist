@@ -1345,6 +1345,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
 
         var previousEndAt: Date?
         var previousDestinationCoordinate: CLLocationCoordinate2D?
+        var shouldChainFromActualTimes = false
         var recalculatedByID = [UUID: JourneyPlanItem]()
 
         for item in targetItems {
@@ -1352,12 +1353,17 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 recalculatedByID[item.id] = item
                 previousEndAt = max(previousEndAt ?? item.approximateEndAt, item.approximateEndAt)
                 previousDestinationCoordinate = CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)
+                if abs(item.plannedStartAt.timeIntervalSince(item.userPlannedStartAt)) >= 60 {
+                    shouldChainFromActualTimes = true
+                }
                 continue
             }
 
             let adjustedStartAt: Date
-            if let previousEndAt, previousEndAt > item.userPlannedStartAt {
-                adjustedStartAt = previousEndAt
+            if let previousEndAt {
+                adjustedStartAt = shouldChainFromActualTimes
+                    ? previousEndAt
+                    : max(previousEndAt, item.userPlannedStartAt)
             } else {
                 adjustedStartAt = item.userPlannedStartAt
             }
