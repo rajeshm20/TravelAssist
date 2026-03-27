@@ -110,7 +110,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
 
         sessionSubject.send(resolvedSession)
         if let journeyPlanItemID = resolvedSession.journeyPlanItemID {
-            updateJourneyPlanItemStatus(id: journeyPlanItemID, status: .inProgress)
+            markJourneyPlanItemInProgressAndRecomputeSchedule(id: journeyPlanItemID, startedAt: resolvedSession.startedAt)
         }
         snapshotSubject.send(nil)
         currentRoutePoints = [
@@ -797,7 +797,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             .filter { item in
                 item.status == .started &&
                 item.selectedJourneyMode == session.selectedJourneyMode &&
-                Calendar.current.isDate(item.plannedStartAt, inSameDayAs: session.startedAt)
+                Calendar.current.isDate(item.userPlannedStartAt, inSameDayAs: session.startedAt)
             }
             .filter { item in
                 let itemLocation = CLLocation(latitude: item.latitude, longitude: item.longitude)
@@ -1204,6 +1204,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 startLongitude: item.startLongitude,
                 latitude: item.latitude,
                 longitude: item.longitude,
+                userPlannedStartAt: item.userPlannedStartAt,
                 plannedStartAt: item.plannedStartAt,
                 approximateEndAt: item.approximateEndAt,
                 estimatedTravelDurationSeconds: item.estimatedTravelDurationSeconds,
@@ -1214,6 +1215,95 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             )
         }
         saveJourneyPlanItems(updated)
+    }
+
+    private func markJourneyPlanItemInProgressAndRecomputeSchedule(id: UUID, startedAt: Date) {
+        let calendar = Calendar.current
+        guard let referenceItem = journeyPlanSubject.value.first(where: { $0.id == id }) else { return }
+        let dayStart = calendar.startOfDay(for: referenceItem.userPlannedStartAt)
+
+        var updated = journeyPlanSubject.value.map { item in
+            guard item.id == id else { return item }
+            return JourneyPlanItem(
+                id: item.id,
+                title: item.title,
+                subtitle: item.subtitle,
+                startLatitude: item.startLatitude,
+                startLongitude: item.startLongitude,
+                latitude: item.latitude,
+                longitude: item.longitude,
+                userPlannedStartAt: item.userPlannedStartAt,
+                plannedStartAt: startedAt,
+                estimatedTravelDurationSeconds: item.estimatedTravelDurationSeconds,
+                selectedJourneyMode: item.selectedJourneyMode,
+                leadTimeMinutes: item.leadTimeMinutes,
+                status: .inProgress,
+                createdAt: item.createdAt
+            )
+        }
+
+        updated = recomputeJourneyPlanSchedule(for: dayStart, items: updated)
+        updated.sort { lhs, rhs in
+            if lhs.plannedStartAt == rhs.plannedStartAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.plannedStartAt < rhs.plannedStartAt
+        }
+        saveJourneyPlanItems(updated)
+    }
+
+    private func recomputeJourneyPlanSchedule(for dayStart: Date, items: [JourneyPlanItem]) -> [JourneyPlanItem] {
+        let calendar = Calendar.current
+        let targetItems = items
+            .filter { calendar.isDate($0.userPlannedStartAt, inSameDayAs: dayStart) }
+            .sorted { lhs, rhs in
+                if lhs.userPlannedStartAt == rhs.userPlannedStartAt {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.userPlannedStartAt < rhs.userPlannedStartAt
+            }
+
+        var previousEndAt: Date?
+        var previousDestinationCoordinate: CLLocationCoordinate2D?
+        var recalculatedByID = [UUID: JourneyPlanItem]()
+
+        for item in targetItems {
+            if item.status == .completed || item.status == .inProgress {
+                recalculatedByID[item.id] = item
+                previousEndAt = max(previousEndAt ?? item.approximateEndAt, item.approximateEndAt)
+                previousDestinationCoordinate = CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)
+                continue
+            }
+
+            let adjustedStartAt: Date
+            if let previousEndAt, previousEndAt > item.userPlannedStartAt {
+                adjustedStartAt = previousEndAt
+            } else {
+                adjustedStartAt = item.userPlannedStartAt
+            }
+
+            let recalculated = JourneyPlanItem(
+                id: item.id,
+                title: item.title,
+                subtitle: item.subtitle,
+                startLatitude: previousDestinationCoordinate?.latitude,
+                startLongitude: previousDestinationCoordinate?.longitude,
+                latitude: item.latitude,
+                longitude: item.longitude,
+                userPlannedStartAt: item.userPlannedStartAt,
+                plannedStartAt: adjustedStartAt,
+                estimatedTravelDurationSeconds: item.estimatedTravelDurationSeconds,
+                selectedJourneyMode: item.selectedJourneyMode,
+                leadTimeMinutes: item.leadTimeMinutes,
+                status: item.status,
+                createdAt: item.createdAt
+            )
+            recalculatedByID[item.id] = recalculated
+            previousEndAt = recalculated.approximateEndAt
+            previousDestinationCoordinate = CLLocationCoordinate2D(latitude: recalculated.latitude, longitude: recalculated.longitude)
+        }
+
+        return items.map { recalculatedByID[$0.id] ?? $0 }
     }
 
     private func resolveNextPlannedSessionAfterCompletion(
