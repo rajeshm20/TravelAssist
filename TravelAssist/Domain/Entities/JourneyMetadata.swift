@@ -128,6 +128,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
     let startLongitude: Double?
     let latitude: Double
     let longitude: Double
+    let userPlannedStartAt: Date
     let plannedStartAt: Date
     let approximateEndAt: Date
     let estimatedTravelDurationSeconds: TimeInterval
@@ -144,6 +145,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
         startLongitude: Double? = nil,
         latitude: Double,
         longitude: Double,
+        userPlannedStartAt: Date? = nil,
         plannedStartAt: Date,
         approximateEndAt: Date? = nil,
         estimatedTravelDurationSeconds: TimeInterval,
@@ -160,6 +162,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
         self.startLongitude = startLongitude
         self.latitude = latitude
         self.longitude = longitude
+        self.userPlannedStartAt = userPlannedStartAt ?? plannedStartAt
         self.plannedStartAt = plannedStartAt
         self.approximateEndAt = approximateEndAt ?? plannedStartAt.addingTimeInterval(resolvedDuration)
         self.estimatedTravelDurationSeconds = resolvedDuration
@@ -177,6 +180,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
         case startLongitude
         case latitude
         case longitude
+        case userPlannedStartAt
         case plannedStartAt
         case approximateEndAt
         case estimatedTravelDurationSeconds
@@ -196,6 +200,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
         let latitude = try container.decode(Double.self, forKey: .latitude)
         let longitude = try container.decode(Double.self, forKey: .longitude)
         let plannedStartAt = try container.decode(Date.self, forKey: .plannedStartAt)
+        let userPlannedStartAt = try container.decodeIfPresent(Date.self, forKey: .userPlannedStartAt) ?? plannedStartAt
         let selectedJourneyMode = try container.decode(JourneyMode.self, forKey: .selectedJourneyMode)
         let leadTimeMinutes = try container.decode(Int.self, forKey: .leadTimeMinutes)
         let estimatedTravelDurationSeconds = try container.decodeIfPresent(
@@ -214,6 +219,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
             startLongitude: startLongitude,
             latitude: latitude,
             longitude: longitude,
+            userPlannedStartAt: userPlannedStartAt,
             plannedStartAt: plannedStartAt,
             approximateEndAt: approximateEndAt,
             estimatedTravelDurationSeconds: estimatedTravelDurationSeconds,
@@ -233,6 +239,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(startLongitude, forKey: .startLongitude)
         try container.encode(latitude, forKey: .latitude)
         try container.encode(longitude, forKey: .longitude)
+        try container.encode(userPlannedStartAt, forKey: .userPlannedStartAt)
         try container.encode(plannedStartAt, forKey: .plannedStartAt)
         try container.encode(approximateEndAt, forKey: .approximateEndAt)
         try container.encode(estimatedTravelDurationSeconds, forKey: .estimatedTravelDurationSeconds)

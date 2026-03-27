@@ -8,6 +8,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         static let activeSession = "trip.active.session"
         static let historySessions = "trip.history.sessions"
         static let journeyPlanItems = "trip.journey.plan"
+        static let liveActivityID = "trip.live.activity.id"
     }
 
     private let locationService: LocationService
@@ -47,6 +48,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private var lastLiveActivityState: TravelAssistWidgetAttributes.ContentState?
     private var lastLiveActivityUpdateAt: Date?
 
+    private static let liveActivityStartQueue = DispatchQueue(label: "trip.monitoring.liveactivity.start")
+
     private let sessionSubject = CurrentValueSubject<TripSession?, Never>(nil)
     private let snapshotSubject = CurrentValueSubject<TravelSnapshot?, Never>(nil)
     private let historySubject = CurrentValueSubject<[TripHistorySession], Never>([])
@@ -76,19 +79,21 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         etaEstimator: ETAEstimator,
         alertService: FakeCallAlertService,
         backgroundTaskScheduler: BackgroundTaskScheduler,
-        widgetSyncService: WidgetSyncService
+        widgetSyncService: WidgetSyncService,
+        defaults: UserDefaults? = UserDefaults(suiteName: AppConstants.appGroupID)
     ) {
         self.locationService = locationService
         self.etaEstimator = etaEstimator
         self.alertService = alertService
         self.backgroundTaskScheduler = backgroundTaskScheduler
         self.widgetSyncService = widgetSyncService
-        self.defaults = UserDefaults(suiteName: AppConstants.appGroupID)
+        self.defaults = defaults
 
         bindLocationUpdates()
         bindAuthorizationUpdates()
         loadPersistedHistory()
         loadPersistedJourneyPlan()
+        cleanupLiveActivitiesIfNoPersistedSession()
         restoreActiveSessionIfNeeded()
     }
 
@@ -110,7 +115,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
 
         sessionSubject.send(resolvedSession)
         if let journeyPlanItemID = resolvedSession.journeyPlanItemID {
-            updateJourneyPlanItemStatus(id: journeyPlanItemID, status: .inProgress)
+            markJourneyPlanItemInProgressAndRecomputeSchedule(id: journeyPlanItemID, startedAt: resolvedSession.startedAt)
         }
         snapshotSubject.send(nil)
         currentRoutePoints = [
@@ -239,6 +244,14 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             abs(existing.plannedStartAt.timeIntervalSince(item.plannedStartAt)) < 60
         }
         updated.append(item)
+        updated.sort { lhs, rhs in
+            if lhs.plannedStartAt == rhs.plannedStartAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.plannedStartAt < rhs.plannedStartAt
+        }
+        let dayStart = Calendar.current.startOfDay(for: item.userPlannedStartAt)
+        updated = recomputeJourneyPlanSchedule(for: dayStart, items: updated)
         updated.sort { lhs, rhs in
             if lhs.plannedStartAt == rhs.plannedStartAt {
                 return lhs.createdAt < rhs.createdAt
@@ -797,7 +810,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             .filter { item in
                 item.status == .started &&
                 item.selectedJourneyMode == session.selectedJourneyMode &&
-                Calendar.current.isDate(item.plannedStartAt, inSameDayAs: session.startedAt)
+                Calendar.current.isDate(item.userPlannedStartAt, inSameDayAs: session.startedAt)
             }
             .filter { item in
                 let itemLocation = CLLocation(latitude: item.latitude, longitude: item.longitude)
@@ -816,33 +829,58 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
 
     private func startLiveActivity(for session: TripSession) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        if liveActivity != nil { return }
+        TripMonitoringRepositoryImpl.liveActivityStartQueue.sync {
+            attachToExistingLiveActivityIfAvailable()
+            if liveActivity != nil { return }
 
-        let attributes = TravelAssistWidgetAttributes(name: "TravelAssist")
-        let modePresentation = liveActivityModePresentation(for: session, snapshot: nil)
-        let initialState = TravelAssistWidgetAttributes.ContentState(
-            etaMinutes: max(session.leadTimeMinutes, 1),
-            statusText: session.selectedJourneyMode.progressStatusText,
-            progress: 0,
-            distanceText: "--",
-            modeSymbolName: modePresentation.symbolName,
-            modeTitle: modePresentation.title
-        )
+            let attributes = TravelAssistWidgetAttributes(name: "TravelAssist")
+            let modePresentation = liveActivityModePresentation(for: session, snapshot: nil)
+            let initialState = TravelAssistWidgetAttributes.ContentState(
+                etaMinutes: max(session.leadTimeMinutes, 1),
+                statusText: session.selectedJourneyMode.progressStatusText,
+                progress: 0,
+                distanceText: "--",
+                modeSymbolName: modePresentation.symbolName,
+                modeTitle: modePresentation.title
+            )
 
-        do {
+            do {
+                let content = ActivityContent(
+                    state: initialState,
+                    staleDate: Date().addingTimeInterval(120)
+                )
+                liveActivity = try Activity.request(
+                    attributes: attributes,
+                    content: content,
+                    pushType: nil
+                )
+                defaults?.set(liveActivity?.id, forKey: StorageKeys.liveActivityID)
+                lastLiveActivityState = initialState
+                lastLiveActivityUpdateAt = Date()
+            } catch {
+                liveActivity = nil
+            }
+        }
+
+        if let liveActivity {
+            let modePresentation = liveActivityModePresentation(for: session, snapshot: nil)
+            let initialState = TravelAssistWidgetAttributes.ContentState(
+                etaMinutes: max(session.leadTimeMinutes, 1),
+                statusText: session.selectedJourneyMode.progressStatusText,
+                progress: 0,
+                distanceText: "--",
+                modeSymbolName: modePresentation.symbolName,
+                modeTitle: modePresentation.title
+            )
             let content = ActivityContent(
                 state: initialState,
                 staleDate: Date().addingTimeInterval(120)
             )
-            liveActivity = try Activity.request(
-                attributes: attributes,
-                content: content,
-                pushType: nil
-            )
-            lastLiveActivityState = initialState
-            lastLiveActivityUpdateAt = Date()
-        } catch {
-            liveActivity = nil
+            Task { [weak self] in
+                await liveActivity.update(content)
+                self?.lastLiveActivityState = initialState
+                self?.lastLiveActivityUpdateAt = Date()
+            }
         }
     }
 
@@ -878,8 +916,50 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         guard let liveActivity else { return }
         await liveActivity.end(dismissalPolicy: .immediate)
         self.liveActivity = nil
+        defaults?.removeObject(forKey: StorageKeys.liveActivityID)
         lastLiveActivityState = nil
         lastLiveActivityUpdateAt = nil
+    }
+
+    private func cleanupLiveActivitiesIfNoPersistedSession() {
+        guard let defaults else { return }
+        if defaults.data(forKey: StorageKeys.activeSession) != nil { return }
+        if Activity<TravelAssistWidgetAttributes>.activities.isEmpty { return }
+
+        defaults.removeObject(forKey: StorageKeys.liveActivityID)
+        Task {
+            for activity in Activity<TravelAssistWidgetAttributes>.activities {
+                await activity.end(dismissalPolicy: .immediate)
+            }
+        }
+    }
+
+    private func attachToExistingLiveActivityIfAvailable() {
+        guard liveActivity == nil else { return }
+
+        let activities = Array(Activity<TravelAssistWidgetAttributes>.activities)
+        guard let selected = selectLiveActivity(from: activities) else { return }
+
+        liveActivity = selected
+        defaults?.set(selected.id, forKey: StorageKeys.liveActivityID)
+
+        if activities.count > 1 {
+            let selectedID = selected.id
+            Task {
+                for activity in activities where activity.id != selectedID {
+                    await activity.end(dismissalPolicy: .immediate)
+                }
+            }
+        }
+    }
+
+    private func selectLiveActivity(from activities: [Activity<TravelAssistWidgetAttributes>]) -> Activity<TravelAssistWidgetAttributes>? {
+        guard !activities.isEmpty else { return nil }
+        if let preferredID = defaults?.string(forKey: StorageKeys.liveActivityID),
+           let preferred = activities.first(where: { $0.id == preferredID }) {
+            return preferred
+        }
+        return activities.first
     }
 
     private func shouldUpdateLiveActivity(with state: TravelAssistWidgetAttributes.ContentState) -> Bool {
@@ -1204,6 +1284,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 startLongitude: item.startLongitude,
                 latitude: item.latitude,
                 longitude: item.longitude,
+                userPlannedStartAt: item.userPlannedStartAt,
                 plannedStartAt: item.plannedStartAt,
                 approximateEndAt: item.approximateEndAt,
                 estimatedTravelDurationSeconds: item.estimatedTravelDurationSeconds,
@@ -1216,13 +1297,102 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         saveJourneyPlanItems(updated)
     }
 
+    private func markJourneyPlanItemInProgressAndRecomputeSchedule(id: UUID, startedAt: Date) {
+        let calendar = Calendar.current
+        guard let referenceItem = journeyPlanSubject.value.first(where: { $0.id == id }) else { return }
+        let dayStart = calendar.startOfDay(for: referenceItem.userPlannedStartAt)
+
+        var updated = journeyPlanSubject.value.map { item in
+            guard item.id == id else { return item }
+            return JourneyPlanItem(
+                id: item.id,
+                title: item.title,
+                subtitle: item.subtitle,
+                startLatitude: item.startLatitude,
+                startLongitude: item.startLongitude,
+                latitude: item.latitude,
+                longitude: item.longitude,
+                userPlannedStartAt: item.userPlannedStartAt,
+                plannedStartAt: startedAt,
+                estimatedTravelDurationSeconds: item.estimatedTravelDurationSeconds,
+                selectedJourneyMode: item.selectedJourneyMode,
+                leadTimeMinutes: item.leadTimeMinutes,
+                status: .inProgress,
+                createdAt: item.createdAt
+            )
+        }
+
+        updated = recomputeJourneyPlanSchedule(for: dayStart, items: updated)
+        updated.sort { lhs, rhs in
+            if lhs.plannedStartAt == rhs.plannedStartAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.plannedStartAt < rhs.plannedStartAt
+        }
+        saveJourneyPlanItems(updated)
+    }
+
+    private func recomputeJourneyPlanSchedule(for dayStart: Date, items: [JourneyPlanItem]) -> [JourneyPlanItem] {
+        let calendar = Calendar.current
+        let targetItems = items
+            .filter { calendar.isDate($0.userPlannedStartAt, inSameDayAs: dayStart) }
+            .sorted { lhs, rhs in
+                if lhs.userPlannedStartAt == rhs.userPlannedStartAt {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.userPlannedStartAt < rhs.userPlannedStartAt
+            }
+
+        var previousEndAt: Date?
+        var previousDestinationCoordinate: CLLocationCoordinate2D?
+        var recalculatedByID = [UUID: JourneyPlanItem]()
+
+        for item in targetItems {
+            if item.status == .completed || item.status == .inProgress {
+                recalculatedByID[item.id] = item
+                previousEndAt = max(previousEndAt ?? item.approximateEndAt, item.approximateEndAt)
+                previousDestinationCoordinate = CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)
+                continue
+            }
+
+            let adjustedStartAt: Date
+            if let previousEndAt, previousEndAt > item.userPlannedStartAt {
+                adjustedStartAt = previousEndAt
+            } else {
+                adjustedStartAt = item.userPlannedStartAt
+            }
+
+            let recalculated = JourneyPlanItem(
+                id: item.id,
+                title: item.title,
+                subtitle: item.subtitle,
+                startLatitude: previousDestinationCoordinate?.latitude,
+                startLongitude: previousDestinationCoordinate?.longitude,
+                latitude: item.latitude,
+                longitude: item.longitude,
+                userPlannedStartAt: item.userPlannedStartAt,
+                plannedStartAt: adjustedStartAt,
+                estimatedTravelDurationSeconds: item.estimatedTravelDurationSeconds,
+                selectedJourneyMode: item.selectedJourneyMode,
+                leadTimeMinutes: item.leadTimeMinutes,
+                status: item.status,
+                createdAt: item.createdAt
+            )
+            recalculatedByID[item.id] = recalculated
+            previousEndAt = recalculated.approximateEndAt
+            previousDestinationCoordinate = CLLocationCoordinate2D(latitude: recalculated.latitude, longitude: recalculated.longitude)
+        }
+
+        return items.map { recalculatedByID[$0.id] ?? $0 }
+    }
+
     private func resolveNextPlannedSessionAfterCompletion(
         activeSession: TripSession,
         completionStatus: JourneyCompletionStatus,
         finalSnapshot: TravelSnapshot?,
         endedAt: Date
     ) -> TripSession? {
-        finalizeJourneyPlanItemStatus(for: activeSession, completionStatus: completionStatus)
+        finalizeJourneyPlanItemStatus(for: activeSession, completionStatus: completionStatus, endedAt: endedAt)
 
         guard shouldAdvanceJourneyPlan(after: completionStatus),
               shouldAutoStartNextPlannedSession(at: endedAt) else {
@@ -1253,19 +1423,67 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
 
     private func finalizeJourneyPlanItemStatus(
         for activeSession: TripSession,
-        completionStatus: JourneyCompletionStatus
+        completionStatus: JourneyCompletionStatus,
+        endedAt: Date
     ) {
-        guard let journeyPlanItemID = activeSession.journeyPlanItemID else { return }
-
-        let status: JourneyPlanStatus
-        switch completionStatus {
-        case .destinationReached, .journeyFinished:
-            status = .completed
-        case .cancelledByUser, .locationTurnedOffBeforeDestination:
-            status = .started
+        let calendar = Calendar.current
+        guard let journeyPlanItemID = activeSession.journeyPlanItemID,
+              let referenceItem = journeyPlanSubject.value.first(where: { $0.id == journeyPlanItemID }) else {
+            return
         }
 
-        updateJourneyPlanItemStatus(id: journeyPlanItemID, status: status)
+        let dayStart = calendar.startOfDay(for: referenceItem.userPlannedStartAt)
+
+        let updatedItem: JourneyPlanItem
+        switch completionStatus {
+        case .destinationReached, .journeyFinished:
+            updatedItem = JourneyPlanItem(
+                id: referenceItem.id,
+                title: referenceItem.title,
+                subtitle: referenceItem.subtitle,
+                startLatitude: referenceItem.startLatitude,
+                startLongitude: referenceItem.startLongitude,
+                latitude: referenceItem.latitude,
+                longitude: referenceItem.longitude,
+                userPlannedStartAt: referenceItem.userPlannedStartAt,
+                plannedStartAt: referenceItem.plannedStartAt,
+                approximateEndAt: max(endedAt, referenceItem.plannedStartAt),
+                estimatedTravelDurationSeconds: referenceItem.estimatedTravelDurationSeconds,
+                selectedJourneyMode: referenceItem.selectedJourneyMode,
+                leadTimeMinutes: referenceItem.leadTimeMinutes,
+                status: .completed,
+                createdAt: referenceItem.createdAt
+            )
+        case .cancelledByUser, .locationTurnedOffBeforeDestination:
+            updatedItem = JourneyPlanItem(
+                id: referenceItem.id,
+                title: referenceItem.title,
+                subtitle: referenceItem.subtitle,
+                startLatitude: referenceItem.startLatitude,
+                startLongitude: referenceItem.startLongitude,
+                latitude: referenceItem.latitude,
+                longitude: referenceItem.longitude,
+                userPlannedStartAt: referenceItem.userPlannedStartAt,
+                plannedStartAt: referenceItem.userPlannedStartAt,
+                estimatedTravelDurationSeconds: referenceItem.estimatedTravelDurationSeconds,
+                selectedJourneyMode: referenceItem.selectedJourneyMode,
+                leadTimeMinutes: referenceItem.leadTimeMinutes,
+                status: .started,
+                createdAt: referenceItem.createdAt
+            )
+        }
+
+        var updatedItems = journeyPlanSubject.value.map { item in
+            item.id == journeyPlanItemID ? updatedItem : item
+        }
+        updatedItems = recomputeJourneyPlanSchedule(for: dayStart, items: updatedItems)
+        updatedItems.sort { lhs, rhs in
+            if lhs.plannedStartAt == rhs.plannedStartAt {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.plannedStartAt < rhs.plannedStartAt
+        }
+        saveJourneyPlanItems(updatedItems)
     }
 
     private func shouldAdvanceJourneyPlan(after completionStatus: JourneyCompletionStatus) -> Bool {

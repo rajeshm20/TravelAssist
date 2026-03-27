@@ -27,6 +27,7 @@ final class TripSetupViewModel: ObservableObject {
     private let triggerTestFakeCallUseCase: TriggerTestFakeCallUseCase
     private let defaults = UserDefaults.standard
     private let persistedSetupKey = "tripsetup.persisted.selection"
+    private let lastAutoPreviewJourneyPlanDayKey = "journeyplan.autopreview.day"
 
     init(
         buildTripSessionUseCase: BuildTripSessionUseCase,
@@ -219,7 +220,6 @@ final class TripSetupViewModel: ObservableObject {
     }
 
     func addDestinationToJourneyPlan(
-        existingItems: [JourneyPlanItem],
         name: String,
         subtitle: String? = nil,
         coordinate: CLLocationCoordinate2D,
@@ -232,19 +232,14 @@ final class TripSetupViewModel: ObservableObject {
             startLongitude: nil,
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
+            userPlannedStartAt: plannedStartDate,
             plannedStartAt: plannedStartDate,
             estimatedTravelDurationSeconds: resolvedEstimatedTravelDuration(estimatedTravelDurationSeconds),
             selectedJourneyMode: selectedJourneyMode,
             leadTimeMinutes: resolvedLeadTimeMinutes()
         )
-        var updatedItems = existingItems
-        updatedItems.append(item)
-        updatedItems = recomputeJourneyPlanSchedules(
-            affectedDates: [plannedStartDate],
-            items: updatedItems
-        )
 
-        replaceJourneyPlanItemsUseCase.execute(items: updatedItems)
+        addJourneyPlanItemUseCase.execute(item: item)
         persistCurrentSetup()
         errorMessage = nil
         recordTripUserActionUseCase.execute(
@@ -275,6 +270,7 @@ final class TripSetupViewModel: ObservableObject {
             startLongitude: itemToEdit?.startLongitude,
             latitude: coordinate.latitude,
             longitude: coordinate.longitude,
+            userPlannedStartAt: plannedStartAt,
             plannedStartAt: plannedStartAt,
             estimatedTravelDurationSeconds: resolvedDuration,
             selectedJourneyMode: selectedJourneyMode,
@@ -286,7 +282,7 @@ final class TripSetupViewModel: ObservableObject {
         var updatedItems = existingItems.filter { $0.id != replacement.id }
         updatedItems.append(replacement)
         updatedItems = recomputeJourneyPlanSchedules(
-            affectedDates: [itemToEdit?.plannedStartAt, plannedStartAt],
+            affectedDates: [itemToEdit?.userPlannedStartAt, plannedStartAt],
             items: updatedItems
         )
 
@@ -301,6 +297,20 @@ final class TripSetupViewModel: ObservableObject {
         )
     }
 
+    func deleteJourneyPlanItem(existingItems: [JourneyPlanItem], itemID: UUID) {
+        guard let removedItem = existingItems.first(where: { $0.id == itemID }) else { return }
+        var updatedItems = existingItems.filter { $0.id != itemID }
+        updatedItems = recomputeJourneyPlanSchedules(
+            affectedDates: [removedItem.userPlannedStartAt],
+            items: updatedItems
+        )
+        replaceJourneyPlanItemsUseCase.execute(items: updatedItems)
+        errorMessage = nil
+        recordTripUserActionUseCase.execute(
+            status: "Journey plan deleted for \(removedItem.title)"
+        )
+    }
+
     private func resolvedLeadTimeMinutes() -> Int {
         (selectedLeadHours * 60) + selectedLeadMinutes
     }
@@ -308,7 +318,7 @@ final class TripSetupViewModel: ObservableObject {
     private func resolvedPlanItemForStart(from items: [JourneyPlanItem]) -> JourneyPlanItem? {
         items
             .filter {
-                Calendar.current.isDateInToday($0.plannedStartAt) &&
+                Calendar.current.isDateInToday($0.userPlannedStartAt) &&
                 $0.status == .started
             }
             .sorted { lhs, rhs in
@@ -329,6 +339,43 @@ final class TripSetupViewModel: ObservableObject {
         selectedLeadMinutes = max(item.leadTimeMinutes % 60, 0)
         plannedStartDate = item.plannedStartAt
         persistCurrentSetup()
+    }
+
+    func previewJourneyPlanItem(_ item: JourneyPlanItem) {
+        applyJourneyPlanSelection(item)
+        errorMessage = nil
+    }
+
+    func autoPreviewJourneyPlanItemForTodayIfNeeded(
+        items: [JourneyPlanItem],
+        isMonitoringActive: Bool
+    ) -> JourneyPlanItem? {
+        guard !isMonitoringActive else { return nil }
+
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        if let lastAutoPreview = defaults.object(forKey: lastAutoPreviewJourneyPlanDayKey) as? Date,
+           calendar.isDate(lastAutoPreview, inSameDayAs: todayStart) {
+            return nil
+        }
+
+        let todaysItems = items
+            .filter { calendar.isDateInToday($0.userPlannedStartAt) }
+            .sorted { lhs, rhs in
+                if lhs.plannedStartAt == rhs.plannedStartAt {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.plannedStartAt < rhs.plannedStartAt
+            }
+
+        guard let candidate = (todaysItems.first(where: { $0.status == .inProgress }) ??
+                               todaysItems.first(where: { $0.status == .started }) ??
+                               todaysItems.first) else {
+            return nil
+        }
+
+        defaults.set(todayStart, forKey: lastAutoPreviewJourneyPlanDayKey)
+        return candidate
     }
 
     private func resolvedEstimatedTravelDuration(
@@ -364,12 +411,12 @@ final class TripSetupViewModel: ObservableObject {
     private func recomputeJourneyPlanSchedule(for date: Date, items: [JourneyPlanItem]) -> [JourneyPlanItem] {
         let calendar = Calendar.current
         let targetItems = items
-            .filter { calendar.isDate($0.plannedStartAt, inSameDayAs: date) }
+            .filter { calendar.isDate($0.userPlannedStartAt, inSameDayAs: date) }
             .sorted { lhs, rhs in
-                if lhs.plannedStartAt == rhs.plannedStartAt {
+                if lhs.userPlannedStartAt == rhs.userPlannedStartAt {
                     return lhs.createdAt < rhs.createdAt
                 }
-                return lhs.plannedStartAt < rhs.plannedStartAt
+                return lhs.userPlannedStartAt < rhs.userPlannedStartAt
             }
 
         var previousEndAt: Date?
@@ -377,7 +424,7 @@ final class TripSetupViewModel: ObservableObject {
         var recalculatedByID = [UUID: JourneyPlanItem]()
 
         for item in targetItems {
-            if item.status == .completed {
+            if item.status == .completed || item.status == .inProgress {
                 recalculatedByID[item.id] = item
                 previousEndAt = max(previousEndAt ?? item.approximateEndAt, item.approximateEndAt)
                 previousDestinationCoordinate = CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)
@@ -385,10 +432,10 @@ final class TripSetupViewModel: ObservableObject {
             }
 
             let adjustedStartAt: Date
-            if let previousEndAt, previousEndAt > item.plannedStartAt {
+            if let previousEndAt, previousEndAt > item.userPlannedStartAt {
                 adjustedStartAt = previousEndAt
             } else {
-                adjustedStartAt = item.plannedStartAt
+                adjustedStartAt = item.userPlannedStartAt
             }
 
             let recalculated = JourneyPlanItem(
@@ -399,6 +446,7 @@ final class TripSetupViewModel: ObservableObject {
                 startLongitude: previousDestinationCoordinate?.longitude,
                 latitude: item.latitude,
                 longitude: item.longitude,
+                userPlannedStartAt: item.userPlannedStartAt,
                 plannedStartAt: adjustedStartAt,
                 estimatedTravelDurationSeconds: item.estimatedTravelDurationSeconds,
                 selectedJourneyMode: item.selectedJourneyMode,
