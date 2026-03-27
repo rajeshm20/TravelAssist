@@ -1,6 +1,7 @@
+import CoreLocation
 import Foundation
 import WidgetKit
-internal import _LocationEssentials
+import _LocationEssentials
 
 protocol WidgetSyncService {
     func sync(snapshot: TravelSnapshot?, session: TripSession?)
@@ -177,6 +178,7 @@ struct TravelWidgetJourneyPlanDTO: Codable, Equatable {
     let subtitle: String?
     let latitude: Double
     let longitude: Double
+    let userPlannedStartAt: Date
     let plannedStartAt: Date
     let approximateEndAt: Date
     let estimatedTravelDurationSeconds: TimeInterval
@@ -190,6 +192,7 @@ struct TravelWidgetJourneyPlanDTO: Codable, Equatable {
         subtitle = item.subtitle
         latitude = item.latitude
         longitude = item.longitude
+        userPlannedStartAt = item.userPlannedStartAt
         plannedStartAt = item.plannedStartAt
         approximateEndAt = item.approximateEndAt
         estimatedTravelDurationSeconds = item.estimatedTravelDurationSeconds

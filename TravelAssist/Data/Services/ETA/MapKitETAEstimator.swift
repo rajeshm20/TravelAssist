@@ -39,11 +39,11 @@ final class MapKitETAEstimator: ETAEstimator {
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.coordinate))
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
         request.transportType = transportType(for: mode)
-        request.requestsAlternateRoutes = false
+        request.requestsAlternateRoutes = true
 
         do {
             let response = try await MKDirections(request: request).calculate()
-            if let route = response.routes.first {
+            if let route = preferredRoute(from: response.routes) {
                 let adjustedTime = adjustedTravelTime(route.expectedTravelTime, mode: mode)
                 storeCachedRoute(
                     currentLocation: currentLocation,
@@ -64,6 +64,24 @@ final class MapKitETAEstimator: ETAEstimator {
 
         return fallbackEstimate
         #endif
+    }
+
+    private func preferredRoute(from routes: [MKRoute]) -> MKRoute? {
+        guard !routes.isEmpty else { return nil }
+        guard let fastest = routes.min(by: { $0.expectedTravelTime < $1.expectedTravelTime }) else { return routes.first }
+        let maxAllowedTime = fastest.expectedTravelTime * 1.25
+
+        let candidates = routes.filter { $0.expectedTravelTime <= maxAllowedTime }
+        if candidates.isEmpty {
+            return fastest
+        }
+
+        return candidates.min { lhs, rhs in
+            if lhs.distance == rhs.distance {
+                return lhs.expectedTravelTime < rhs.expectedTravelTime
+            }
+            return lhs.distance < rhs.distance
+        }
     }
 
     private func cachedEstimateIfUsable(

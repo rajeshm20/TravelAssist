@@ -1,0 +1,70 @@
+name: iOS Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: "Fastlane lane to run (beta or release)"
+        required: true
+        default: beta
+        type: choice
+        options:
+          - beta
+          - release
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  deploy:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+
+      - name: Validate required secrets
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT_BASE64: ${{ secrets.ASC_KEY_CONTENT_BASE64 }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          FASTLANE_TEAM_ID: ${{ secrets.FASTLANE_TEAM_ID }}
+        run: |
+          missing=()
+          [ -z "${ASC_KEY_ID}" ] && missing+=("ASC_KEY_ID")
+          [ -z "${ASC_ISSUER_ID}" ] && missing+=("ASC_ISSUER_ID")
+          [ -z "${ASC_KEY_CONTENT_BASE64}" ] && missing+=("ASC_KEY_CONTENT_BASE64")
+          [ -z "${MATCH_PASSWORD}" ] && missing+=("MATCH_PASSWORD")
+          [ -z "${MATCH_GIT_URL}" ] && missing+=("MATCH_GIT_URL")
+          [ -z "${FASTLANE_TEAM_ID}" ] && missing+=("FASTLANE_TEAM_ID")
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "Missing GitHub Secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Deploy
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT_BASE64: ${{ secrets.ASC_KEY_CONTENT_BASE64 }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          FASTLANE_TEAM_ID: ${{ secrets.FASTLANE_TEAM_ID }}
+          FASTLANE_APPLE_ID: ${{ secrets.FASTLANE_APPLE_ID }}
+        run: |
+          LANE="${{ github.event.inputs.lane }}"
+          bundle exec fastlane ios "${LANE:-beta}"

@@ -127,6 +127,17 @@ struct TripSetupView: View {
                             }
 
                             HStack(spacing: 10) {
+                                Button {
+                                    stepSelectedJourneyPlanDate(byDays: -1)
+                                } label: {
+                                    Image(systemName: "chevron.left")
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 28, height: 28)
+                                        .background(Color(red: 0.94, green: 0.95, blue: 1.0), in: Circle())
+                                }
+                                .buttonStyle(.plain)
+
                                 DatePicker(
                                     "Journey Date",
                                     selection: selectedJourneyPlanDateBinding,
@@ -134,6 +145,17 @@ struct TripSetupView: View {
                                 )
                                 .labelsHidden()
                                 .datePickerStyle(.compact)
+
+                                Button {
+                                    stepSelectedJourneyPlanDate(byDays: 1)
+                                } label: {
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 28, height: 28)
+                                        .background(Color(red: 0.94, green: 0.95, blue: 1.0), in: Circle())
+                                }
+                                .buttonStyle(.plain)
 
                                 Spacer()
 
@@ -231,6 +253,8 @@ struct TripSetupView: View {
                                 .padding(.vertical, 8)
                                 .background(Color.white.opacity(0.95), in: Capsule())
                                 .foregroundStyle(statusAccentColor)
+                                .disabled(shouldDisableStartTripButton)
+                                .opacity(shouldDisableStartTripButton ? 0.6 : 1)
                             }
                             .padding(16)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -258,13 +282,15 @@ struct TripSetupView: View {
                                     .foregroundStyle(.black.opacity(0.85))
                                 Spacer()
                                 if !monitoringViewModel.isMonitoring {
-                                    Button(viewModel.selectedDestinationName == nil ? "Search Map" : "Change") {
-                                        isDestinationPickerPresented = true
+                                    if viewModel.selectedDestinationName == nil {
+                                        Button("Search Map") {
+                                            isDestinationPickerPresented = true
+                                        }
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 7)
+                                        .background(Color(red: 0.91, green: 0.93, blue: 0.98), in: Capsule())
                                     }
-                                    .font(.caption.weight(.semibold))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 7)
-                                    .background(Color(red: 0.91, green: 0.93, blue: 0.98), in: Capsule())
                                 }
                             }
 
@@ -321,9 +347,7 @@ struct TripSetupView: View {
                                 syncRoutePreviewDestination()
                             }
                             .onChange(of: selectedJourneyPlanDate) { _, _ in
-                                if isPreviewingAllJourneyPlanRoutes {
-                                    syncRoutePreviewDestination()
-                                }
+                                handleSelectedJourneyPlanDateChange()
                             }
 
                             if let routeStatusMessage = routePreviewViewModel.routeStatusMessage {
@@ -389,7 +413,11 @@ struct TripSetupView: View {
                 viewModel.applySelectedJourneyModeToActiveSession()
             }
             .onChange(of: monitoringViewModel.journeyPlanItems) { _, _ in
-                autoPreviewTodayJourneyPlanIfNeeded()
+                if Calendar.current.isDateInToday(selectedJourneyPlanDate) {
+                    autoPreviewTodayJourneyPlanIfNeeded()
+                } else {
+                    handleSelectedJourneyPlanDateChange()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .fakeCallPresentationRequested)) { notification in
                 guard let request = FakeCallPresentationRequest.from(userInfo: notification.userInfo) else {
@@ -471,7 +499,6 @@ struct TripSetupView: View {
                 }
                 Button("Add To Next Plan") {
                     viewModel.addDestinationToJourneyPlan(
-                        existingItems: monitoringViewModel.journeyPlanItems,
                         name: destination.title,
                         subtitle: destination.subtitle,
                         coordinate: destination.coordinate,
@@ -507,6 +534,11 @@ struct TripSetupView: View {
 
     private var statusAccentColor: Color {
         monitoringViewModel.isMonitoring ? Color(red: 0.90, green: 0.20, blue: 0.30) : Color(red: 0.19, green: 0.45, blue: 0.93)
+    }
+
+    private var shouldDisableStartTripButton: Bool {
+        guard !monitoringViewModel.isMonitoring else { return false }
+        return !Calendar.current.isDateInToday(selectedJourneyPlanDate)
     }
 
     private var greetingTitle: String {
@@ -695,6 +727,7 @@ struct TripSetupView: View {
     }
 
     private func autoPreviewTodayJourneyPlanIfNeeded() {
+        guard Calendar.current.isDateInToday(selectedJourneyPlanDate) else { return }
         guard let item = viewModel.autoPreviewJourneyPlanItemForTodayIfNeeded(
             items: monitoringViewModel.journeyPlanItems,
             isMonitoringActive: monitoringViewModel.isMonitoring
@@ -704,6 +737,40 @@ struct TripSetupView: View {
 
         selectedJourneyPlanDate = Calendar.current.startOfDay(for: item.userPlannedStartAt)
         previewJourneyPlanItem(item)
+    }
+
+    private func stepSelectedJourneyPlanDate(byDays deltaDays: Int) {
+        let calendar = Calendar.current
+        guard let nextDate = calendar.date(byAdding: .day, value: deltaDays, to: selectedJourneyPlanDate) else { return }
+        selectedJourneyPlanDate = calendar.startOfDay(for: nextDate)
+    }
+
+    private func handleSelectedJourneyPlanDateChange() {
+        guard !monitoringViewModel.isMonitoring else { return }
+
+        if isPreviewingAllJourneyPlanRoutes {
+            syncRoutePreviewDestination()
+            return
+        }
+
+        if let selectedID = selectedJourneyPlanPreviewItemID,
+           journeyPlanItemsForSelectedDate.contains(where: { $0.id == selectedID }) {
+            syncRoutePreviewDestination()
+            return
+        }
+
+        let candidate =
+            journeyPlanItemsForSelectedDate.first(where: { $0.status == .inProgress }) ??
+            journeyPlanItemsForSelectedDate.first(where: { $0.status == .started }) ??
+            journeyPlanItemsForSelectedDate.first
+
+        guard let candidate else {
+            selectedJourneyPlanPreviewItemID = nil
+            syncRoutePreviewDestination()
+            return
+        }
+
+        previewJourneyPlanItem(candidate)
     }
 
     private func handleDestinationSelection(_ draft: DestinationDraft) {
@@ -1532,8 +1599,18 @@ private struct JourneyPlanEditorSheet: View {
                 return lhs.plannedStartAt < rhs.plannedStartAt
             }
             .last
-        let referenceDate = editingItem?.plannedStartAt ?? lastItemForSelectedDay?.approximateEndAt ?? viewModel.plannedStartDate
         let baseDate = calendar.startOfDay(for: selectedDate)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: baseDate)?.addingTimeInterval(-60) ?? baseDate
+
+        let referenceDate: Date
+        if let editingItem {
+            referenceDate = editingItem.plannedStartAt
+        } else if let lastItemForSelectedDay {
+            referenceDate = min(lastItemForSelectedDay.approximateEndAt, dayEnd)
+        } else {
+            referenceDate = viewModel.plannedStartDate
+        }
+
         let referenceComponents = calendar.dateComponents([.hour, .minute], from: referenceDate)
         var resolvedStartAt = calendar.date(
             bySettingHour: referenceComponents.hour ?? 9,
@@ -1542,7 +1619,7 @@ private struct JourneyPlanEditorSheet: View {
             of: baseDate
         ) ?? referenceDate
         if editingItem == nil, let lastItemForSelectedDay {
-            resolvedStartAt = max(resolvedStartAt, lastItemForSelectedDay.approximateEndAt)
+            resolvedStartAt = max(resolvedStartAt, min(lastItemForSelectedDay.approximateEndAt, dayEnd))
         }
 
         _plannedStartAt = State(initialValue: resolvedStartAt)
@@ -1694,7 +1771,7 @@ private struct JourneyPlanEditorSheet: View {
                             .font(.headline.weight(.semibold))
                         timingRow(title: "Start", value: Self.timeFormatter.string(from: plannedStartAt))
                         timingRow(title: "Approx. End", value: approximateEndTimeText)
-                        timingRow(title: "Journey Mode", value: selectedJourneyMode.title)
+                        timingIconRow(title: "Journey Mode", systemImage: selectedJourneyMode.symbolName)
                         timingRow(title: "Lead Time", value: leadTimeText)
                     }
                     .padding(14)
@@ -1787,8 +1864,9 @@ private struct JourneyPlanEditorSheet: View {
 
     private var dateSelectionRange: ClosedRange<Date> {
         let calendar = Calendar.current
-        let lowerBound = calendar.startOfDay(for: Date())
-        let upperBound = calendar.date(byAdding: .year, value: 2, to: lowerBound) ?? lowerBound.addingTimeInterval(63_072_000)
+        let todayStart = calendar.startOfDay(for: Date())
+        let lowerBound = calendar.date(byAdding: .year, value: -1, to: todayStart) ?? todayStart.addingTimeInterval(-31_536_000)
+        let upperBound = calendar.date(byAdding: .year, value: 2, to: todayStart) ?? todayStart.addingTimeInterval(63_072_000)
         return lowerBound...upperBound
     }
 
@@ -1940,6 +2018,18 @@ private struct JourneyPlanEditorSheet: View {
             Spacer()
             Text(value)
                 .multilineTextAlignment(.trailing)
+        }
+        .font(.caption)
+    }
+
+    @ViewBuilder
+    private func timingIconRow(title: String, systemImage: String) -> some View {
+        HStack {
+            Text(title)
+                .fontWeight(.semibold)
+            Spacer()
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
         }
         .font(.caption)
     }
@@ -2964,7 +3054,7 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: sourceCoordinate))
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destinationCoordinate))
         request.transportType = transportType
-        request.requestsAlternateRoutes = false
+        request.requestsAlternateRoutes = true
         let directions = MKDirections(request: request)
         let requestID = UUID()
         activeDirections = directions
@@ -2988,12 +3078,12 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
         guard activeRouteRequestID == requestID else { return }
         finishRouteRequest()
         isLoadingRoute = false
-        guard let firstRoute = response.routes.first else {
+        guard let route = preferredRoute(from: response.routes) else {
             route = nil
             routeStatusMessage = "No drivable route found for this destination."
             return
         }
-        route = firstRoute
+        self.route = route
         routeStatusMessage = "Route preview is ready."
     }
 
@@ -3121,14 +3211,32 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: source))
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
         request.transportType = transportType
-        request.requestsAlternateRoutes = false
+        request.requestsAlternateRoutes = true
         let directions = MKDirections(request: request)
         multiDirections.append(directions)
         let response = try await directions.calculate()
-        guard let first = response.routes.first else {
+        guard let preferred = preferredRoute(from: response.routes) else {
             throw NSError(domain: "RoutePreview", code: 404, userInfo: nil)
         }
-        return first
+        return preferred
+    }
+
+    private func preferredRoute(from routes: [MKRoute]) -> MKRoute? {
+        guard !routes.isEmpty else { return nil }
+        guard let fastest = routes.min(by: { $0.expectedTravelTime < $1.expectedTravelTime }) else { return routes.first }
+        let maxAllowedTime = fastest.expectedTravelTime * 1.25
+
+        let candidates = routes.filter { $0.expectedTravelTime <= maxAllowedTime }
+        if candidates.isEmpty {
+            return fastest
+        }
+
+        return candidates.min { lhs, rhs in
+            if lhs.distance == rhs.distance {
+                return lhs.expectedTravelTime < rhs.expectedTravelTime
+            }
+            return lhs.distance < rhs.distance
+        }
     }
 
     private func transportType(for journeyMode: JourneyMode) -> MKDirectionsTransportType {

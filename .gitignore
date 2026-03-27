@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+
+# Xcode / Swift
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.xcresult
+*.xcarchive
+*.ipa
+
+# SwiftPM
+.build/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+fastlane/.env
+fastlane/.env.*
+
+# Secrets / signing artifacts (never commit)
+*.p8
+*.cer
+*.p12
+*.mobileprovision
+*.key
+*.pem
+
+# Local CI outputs
+scripts/ci/.tmp/
+

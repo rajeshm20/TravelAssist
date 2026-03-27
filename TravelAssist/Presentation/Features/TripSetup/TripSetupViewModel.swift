@@ -220,7 +220,6 @@ final class TripSetupViewModel: ObservableObject {
     }
 
     func addDestinationToJourneyPlan(
-        existingItems: [JourneyPlanItem],
         name: String,
         subtitle: String? = nil,
         coordinate: CLLocationCoordinate2D,
@@ -239,14 +238,8 @@ final class TripSetupViewModel: ObservableObject {
             selectedJourneyMode: selectedJourneyMode,
             leadTimeMinutes: resolvedLeadTimeMinutes()
         )
-        var updatedItems = existingItems
-        updatedItems.append(item)
-        updatedItems = recomputeJourneyPlanSchedules(
-            affectedDates: [plannedStartDate],
-            items: updatedItems
-        )
 
-        replaceJourneyPlanItemsUseCase.execute(items: updatedItems)
+        addJourneyPlanItemUseCase.execute(item: item)
         persistCurrentSetup()
         errorMessage = nil
         recordTripUserActionUseCase.execute(
