@@ -47,6 +47,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private var latestDetectedActivity: DetectedJourneyActivity = .unknown
     private var lastLiveActivityState: TravelAssistWidgetAttributes.ContentState?
     private var lastLiveActivityUpdateAt: Date?
+    private let activityDetector = JourneyActivityDetector()
 
     private static let liveActivityStartQueue = DispatchQueue(label: "trip.monitoring.liveactivity.start")
 
@@ -465,35 +466,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     }
 
     private func detectJourneyActivity(at location: CLLocation, previous: CLLocation?) -> DetectedJourneyActivity {
-        var speed = location.speed
-        if !speed.isFinite || speed < 0 {
-            speed = 0
-        }
-
-        if let previous {
-            let dt = location.timestamp.timeIntervalSince(previous.timestamp)
-            if dt > 0 {
-                let verticalSpeed = abs(location.altitude - previous.altitude) / dt
-                if verticalSpeed >= 0.35 && speed < 2.8 {
-                    return .climbing
-                }
-
-                if speed <= 0.1 {
-                    speed = location.distance(from: previous) / dt
-                }
-            }
-        }
-
-        if speed < 0.7 {
-            return .stationary
-        }
-        if speed < 2.2 {
-            return .walking
-        }
-        if speed < 4.8 {
-            return .running
-        }
-        return .unknown
+        activityDetector.detect(at: location, previous: previous)
     }
 
     private func isMeaningfulMovement(
