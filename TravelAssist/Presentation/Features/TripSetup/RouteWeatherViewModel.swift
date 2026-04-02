@@ -120,7 +120,9 @@ final class RouteWeatherViewModel: ObservableObject {
                     detail: currentDetailText(from: currentWeather.currentWeather)
                 )
             } catch {
-                currentLine = nil
+                currentLine = isAuthError(error)
+                    ? WeatherLine(symbolName: "exclamationmark.triangle.fill", title: "Weather", detail: "WeatherKit not enabled")
+                    : nil
             }
         }
 
@@ -153,6 +155,15 @@ final class RouteWeatherViewModel: ObservableObject {
                 )
                 pointFindings.append((severity: severity, marker: marker, line: line))
             } catch {
+                if isAuthError(error) {
+                    enrouteLine = WeatherLine(
+                        symbolName: "exclamationmark.triangle.fill",
+                        title: "On the way",
+                        detail: "WeatherKit not enabled"
+                    )
+                    markers = []
+                    return
+                }
                 continue
             }
         }
@@ -257,6 +268,11 @@ final class RouteWeatherViewModel: ObservableObject {
 
     private func pruneCache(now: Date) {
         cache = cache.filter { now.timeIntervalSince($0.value.fetchedAt) < cacheTTLSeconds }
+    }
+
+    private func isAuthError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain.contains("WeatherDaemon.WDSJWTAuthenticatorServiceListener.Errors")
     }
 
     private func sampleAlong(_ polyline: MKPolyline, maxPoints: Int) -> [CLLocationCoordinate2D] {

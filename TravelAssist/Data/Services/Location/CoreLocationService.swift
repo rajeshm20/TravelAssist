@@ -12,8 +12,8 @@ final class CoreLocationService: NSObject, LocationService {
     private var isStandardUpdatesActive = false
     private var isSignificantUpdatesActive = false
 
-    private let maximumHorizontalAccuracyMeters: CLLocationAccuracy = 80
-    private let maximumLocationAgeSeconds: TimeInterval = 15
+    private let maximumHorizontalAccuracyMeters: CLLocationAccuracy = 200
+    private let maximumLocationAgeSeconds: TimeInterval = 60
     private let minimumJitterDistanceMeters: CLLocationDistance = 6
 
     private let authorizationSubject = CurrentValueSubject<CLAuthorizationStatus, Never>(.notDetermined)

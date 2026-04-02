@@ -12,6 +12,7 @@ struct TripSetupView: View {
     @State private var isDestinationPickerPresented = false
     @State private var isHistoryPresented = false
     @State private var historySheetDetent: PresentationDetent = .fraction(0.25)
+    @State private var isWeatherKitHelpPresented = false
     @State private var isRoutePreviewExpanded = false
     @State private var isJourneyPlanExpanded = true
     @State private var isJourneyPlanEditorPresented = false
@@ -420,7 +421,15 @@ struct TripSetupView: View {
             .onChange(of: viewModel.selectedJourneyMode) { _, _ in
                 viewModel.applySelectedJourneyModeToActiveSession()
             }
-            .onChange(of: monitoringViewModel.journeyPlanItems) { _, _ in
+            .onChange(of: monitoringViewModel.journeyPlanItems) { previousItems, updatedItems in
+                if !monitoringViewModel.isMonitoring {
+                    let previousForDay = journeyPlanDisplayItems(for: selectedJourneyPlanDate, from: previousItems)
+                    let updatedForDay = journeyPlanDisplayItems(for: selectedJourneyPlanDate, from: updatedItems)
+                    if !previousForDay.isEmpty && updatedForDay.isEmpty {
+                        clearDestinationAndRoutePreviewForEmptySelectedDay()
+                    }
+                }
+
                 if Calendar.current.isDateInToday(selectedJourneyPlanDate) {
                     autoPreviewTodayJourneyPlanIfNeeded()
                 } else {
@@ -462,6 +471,11 @@ struct TripSetupView: View {
                 )
                     .presentationDetents([.fraction(0.25), .medium, .large], selection: $historySheetDetent)
                     .presentationDragIndicator(.visible)
+            }
+            .alert("Enable WeatherKit", isPresented: $isWeatherKitHelpPresented) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(Self.weatherKitHelpMessage)
             }
             .fullScreenCover(isPresented: $isFakeCallPresented) {
                 FakeIncomingCallView(
@@ -606,11 +620,20 @@ struct TripSetupView: View {
                     }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                } else if destinationWeatherViewModel.unavailableReason(for: item.item, selectedDay: selectedJourneyPlanDate) != nil {
+                } else if let reason = destinationWeatherViewModel.unavailableReason(for: item.item, selectedDay: selectedJourneyPlanDate) {
                     HStack(spacing: 6) {
                         Image(systemName: "questionmark.circle")
                             .font(.caption2.weight(.semibold))
-                        Text("Weather unavailable")
+                        Text(reason)
+                        if reason.contains("WeatherKit") {
+                            Button {
+                                isWeatherKitHelpPresented = true
+                            } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.caption2.weight(.semibold))
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -844,6 +867,17 @@ struct TripSetupView: View {
         pendingDestinationDecision = draft
     }
 
+    private func clearDestinationAndRoutePreviewForEmptySelectedDay() {
+        selectedJourneyPlanPreviewItemID = nil
+        isPreviewingAllJourneyPlanRoutes = false
+        viewModel.selectedDestinationName = nil
+        viewModel.destinationLatitudeText = ""
+        viewModel.destinationLongitudeText = ""
+        routePreviewViewModel.originOverrideCoordinate = nil
+        routePreviewViewModel.updateDestination(latitudeText: "", longitudeText: "")
+        routePreviewViewModel.focusOnCurrentRoute()
+    }
+
     private func isCurrentActiveDestination(_ coordinate: CLLocationCoordinate2D) -> Bool {
         guard let activeDestination = monitoringViewModel.activeSession?.destinationCoordinate else {
             return false
@@ -1018,6 +1052,14 @@ struct TripSetupView: View {
         formatter.dateStyle = .none
         return formatter
     }()
+
+    fileprivate static let weatherKitHelpMessage: String = """
+Weather is unavailable because WeatherKit is not enabled for this build.
+
+1) Xcode → Target “TravelAssist” → Signing & Capabilities → + Capability → WeatherKit
+2) Ensure you’re using a paid Apple Developer team (not “Personal Team”)
+3) Delete the app from the device and Run again so the new provisioning is applied
+"""
 }
 
 private struct JourneyPlanSection: Identifiable {
@@ -2530,6 +2572,7 @@ private struct RoutePreviewMapView: View {
     let isMonitoringActive: Bool
     let onExpand: (() -> Void)?
     let shouldFollowUserWhenMoving: Bool
+    @State private var isWeatherKitHelpPresented = false
 
     var body: some View {
         ZStack {
@@ -2599,6 +2642,11 @@ private struct RoutePreviewMapView: View {
         .onChange(of: viewModel.route?.expectedTravelTime) { _, _ in
             weatherViewModel.refresh(currentCoordinate: viewModel.currentCoordinate, route: viewModel.route)
         }
+        .alert("Enable WeatherKit", isPresented: $isWeatherKitHelpPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(TripSetupView.weatherKitHelpMessage)
+        }
     }
 
     private var weatherAnnotations: [RoutePreviewAnnotationItem] {
@@ -2621,6 +2669,23 @@ private struct RoutePreviewMapView: View {
             }
             if let line = weatherViewModel.enrouteLine {
                 weatherPill(symbolName: line.symbolName, text: "\(line.title): \(line.detail)")
+            }
+            if weatherViewModel.currentLine?.detail.contains("WeatherKit") == true ||
+                weatherViewModel.enrouteLine?.detail.contains("WeatherKit") == true {
+                Button {
+                    isWeatherKitHelpPresented = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "info.circle")
+                            .font(.caption2.weight(.semibold))
+                        Text("Fix WeatherKit setup")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(.ultraThinMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -3105,6 +3170,8 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
     private let maximumHorizontalAccuracyMeters: CLLocationAccuracy = 80
     private let maximumLocationAgeSeconds: TimeInterval = 20
     private let minimumLocationRequestIntervalSeconds: TimeInterval = 2
+    private let reducedAccuracyMaximumHorizontalAccuracyMeters: CLLocationAccuracy = 2000
+    private let reducedAccuracyMaximumLocationAgeSeconds: TimeInterval = 90
 
     override init() {
         super.init()
@@ -3118,12 +3185,17 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
         locationManager.requestWhenInUseAuthorization()
         if locationManager.authorizationStatus == .authorizedWhenInUse ||
             locationManager.authorizationStatus == .authorizedAlways {
+            locationManager.startUpdatingLocation()
             requestCurrentLocationIfNeeded(force: true)
             if locationManager.accuracyAuthorization == .reducedAccuracy {
                 routeStatusMessage = "Approximate location enabled. Turn on Precise Location for accurate map route."
             }
         } else {
-            routeStatusMessage = "Allow location access to preview route from current location."
+            if locationManager.authorizationStatus == .denied || locationManager.authorizationStatus == .restricted {
+                routeStatusMessage = "Location access denied. Enable it in Settings to preview route."
+            } else {
+                routeStatusMessage = "Allow location access to preview route from current location."
+            }
         }
     }
 
@@ -3338,6 +3410,7 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
         if status == .authorizedWhenInUse || status == .authorizedAlways {
+            manager.startUpdatingLocation()
             requestCurrentLocationIfNeeded(force: true)
             if manager.accuracyAuthorization == .reducedAccuracy {
                 routeStatusMessage = "Approximate location enabled. Turn on Precise Location for better accuracy."
@@ -3377,6 +3450,19 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        if let clError = error as? CLError {
+            if clError.code == .locationUnknown {
+                routeStatusMessage = "Waiting for GPS fix..."
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    self?.requestCurrentLocationIfNeeded(force: true)
+                }
+                return
+            }
+            if clError.code == .denied {
+                routeStatusMessage = "Location access denied. Enable it in Settings to preview route."
+                return
+            }
+        }
         routeStatusMessage = "Could not read current location for route preview."
     }
 
@@ -3422,11 +3508,14 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
 
     private func bestAcceptableLocation(from locations: [CLLocation]) -> CLLocation? {
         let now = Date()
+        let isReducedAccuracy = locationManager.accuracyAuthorization == .reducedAccuracy
+        let maxAccuracy = isReducedAccuracy ? reducedAccuracyMaximumHorizontalAccuracyMeters : maximumHorizontalAccuracyMeters
+        let maxAge = isReducedAccuracy ? reducedAccuracyMaximumLocationAgeSeconds : maximumLocationAgeSeconds
         return locations
             .filter { location in
                 location.horizontalAccuracy >= 0 &&
-                location.horizontalAccuracy <= maximumHorizontalAccuracyMeters &&
-                abs(location.timestamp.timeIntervalSince(now)) <= maximumLocationAgeSeconds
+                location.horizontalAccuracy <= maxAccuracy &&
+                abs(location.timestamp.timeIntervalSince(now)) <= maxAge
             }
             .min { lhs, rhs in
                 if lhs.horizontalAccuracy == rhs.horizontalAccuracy {

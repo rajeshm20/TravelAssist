@@ -42,6 +42,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private var hasReachedDestination = false
     private var hasScheduledProgressNotifications = false
     private var progressNotificationSessionID: UUID?
+    private var pendingNextTripAutoStart: PendingNextTripAutoStart?
+    private var pendingNextTripExpiryWorkItem: DispatchWorkItem?
     private var liveActivity: Activity<TravelAssistWidgetAttributes>?
     private var currentRoutePoints: [PersistedTrackPoint] = []
     private var currentActivityEvents: [TripActivityEvent] = []
@@ -55,6 +57,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private let activityDetector = JourneyActivityDetector()
     private var isInBackground = false
     private let backgroundLocationRefreshSeconds: TimeInterval = 5 * 60
+    private let nextTripAutoStartExpirySeconds: TimeInterval = 20 * 60
 
     private static let liveActivityStartQueue = DispatchQueue(label: "trip.monitoring.liveactivity.start")
 
@@ -321,7 +324,12 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private func bindLocationUpdates() {
         locationService.locationPublisher
             .sink { [weak self] location in
-                self?.scheduleEstimate(for: location)
+                guard let self else { return }
+                if self.sessionSubject.value != nil {
+                    self.scheduleEstimate(for: location)
+                } else {
+                    self.handlePendingNextTripAutoStartMovement(location: location)
+                }
             }
             .store(in: &cancellables)
     }
@@ -821,7 +829,13 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         }
 
         if let nextSession {
-            start(session: nextSession)
+            armPendingNextTripAutoStart(
+                session: nextSession.session,
+                tripTitle: nextSession.tripTitle,
+                endedAt: endedAt,
+                lastLocation: finalSnapshot.flatMap { CLLocation(latitude: $0.currentCoordinate.latitude, longitude: $0.currentCoordinate.longitude) }
+                    ?? locationService.currentLocation
+            )
         }
     }
 
@@ -853,6 +867,108 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         latestDetectedActivity = .unknown
         lastLiveActivityState = nil
         lastLiveActivityUpdateAt = nil
+    }
+
+    private func armPendingNextTripAutoStart(
+        session: TripSession,
+        tripTitle: String,
+        endedAt: Date,
+        lastLocation: CLLocation?
+    ) {
+        pendingNextTripExpiryWorkItem?.cancel()
+        pendingNextTripExpiryWorkItem = nil
+
+        pendingNextTripAutoStart = PendingNextTripAutoStart(
+            session: session,
+            tripTitle: tripTitle,
+            baselineLocation: lastLocation,
+            createdAt: endedAt,
+            expiresAt: endedAt.addingTimeInterval(nextTripAutoStartExpirySeconds),
+            hasPrompted: false
+        )
+
+        locationService.requestPermissionsIfNeeded()
+        locationService.startSignificantUpdates()
+        locationService.requestOneTimeLocation()
+
+        let expiryWork = DispatchWorkItem { [weak self] in
+            self?.clearPendingNextTripAutoStart()
+        }
+        pendingNextTripExpiryWorkItem = expiryWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + nextTripAutoStartExpirySeconds, execute: expiryWork)
+    }
+
+    private func clearPendingNextTripAutoStart() {
+        pendingNextTripExpiryWorkItem?.cancel()
+        pendingNextTripExpiryWorkItem = nil
+        pendingNextTripAutoStart = nil
+        if sessionSubject.value == nil {
+            locationService.stopUpdates()
+        }
+    }
+
+    private func handlePendingNextTripAutoStartMovement(location: CLLocation) {
+        guard var pending = pendingNextTripAutoStart else { return }
+        guard !pending.hasPrompted else { return }
+        if Date() >= pending.expiresAt {
+            clearPendingNextTripAutoStart()
+            return
+        }
+
+        let detectedActivity = detectJourneyActivity(at: location, previous: pending.baselineLocation)
+        let movedMeaningfully = isMeaningfulMovement(
+            location: location,
+            previousLocation: pending.baselineLocation,
+            detectedActivity: detectedActivity
+        )
+
+        guard movedMeaningfully else {
+            pending.baselineLocation = location
+            pendingNextTripAutoStart = pending
+            return
+        }
+
+        pending.hasPrompted = true
+        pendingNextTripAutoStart = pending
+
+        let prompt = "Start next trip: \(pending.tripTitle)? Say yes to start, or no to skip."
+        alertService.scheduleDecisionFakeCall(in: 0, message: prompt) { [weak self] accepted in
+            guard let self else { return }
+            guard let currentPending = self.pendingNextTripAutoStart else { return }
+
+            self.clearPendingNextTripAutoStart()
+
+            guard accepted else {
+                self.recordActivityEvent(
+                    status: "Next trip auto-start declined",
+                    latitude: location.coordinate.latitude,
+                    longitude: location.coordinate.longitude,
+                    timestamp: .now
+                )
+                return
+            }
+
+            let latestCoordinate = self.locationService.currentLocation?.coordinate ?? currentPending.session.startCoordinate
+            let resolvedSession = TripSession(
+                id: currentPending.session.id,
+                startCoordinate: latestCoordinate,
+                destinationCoordinate: currentPending.session.destinationCoordinate,
+                leadTimeMinutes: currentPending.session.leadTimeMinutes,
+                selectedJourneyMode: currentPending.session.selectedJourneyMode,
+                journeyPlanItemID: currentPending.session.journeyPlanItemID,
+                startedAt: max(Date(), currentPending.session.startedAt)
+            )
+            self.start(session: resolvedSession)
+        }
+    }
+
+    private struct PendingNextTripAutoStart {
+        let session: TripSession
+        let tripTitle: String
+        var baselineLocation: CLLocation?
+        let createdAt: Date
+        let expiresAt: Date
+        var hasPrompted: Bool
     }
 
     private func resolvedSessionForStart(_ session: TripSession) -> TripSession {
@@ -1467,11 +1583,13 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         completionStatus: JourneyCompletionStatus,
         finalSnapshot: TravelSnapshot?,
         endedAt: Date
-    ) -> TripSession? {
+    ) -> NextPlannedSessionSeed? {
+        guard activeSession.journeyPlanItemID != nil else {
+            return nil
+        }
         finalizeJourneyPlanItemStatus(for: activeSession, completionStatus: completionStatus, endedAt: endedAt)
 
-        guard shouldAdvanceJourneyPlan(after: completionStatus),
-              shouldAutoStartNextPlannedSession(at: endedAt) else {
+        guard shouldAdvanceJourneyPlan(after: completionStatus) else {
             return nil
         }
 
@@ -1486,8 +1604,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         let startCoordinate = finalSnapshot?.currentCoordinate ?? locationService.currentLocation?.coordinate
         guard let startCoordinate else { return nil }
 
-        updateJourneyPlanItemStatus(id: nextItem.id, status: .inProgress)
-        return TripSession(
+        let session = TripSession(
             startCoordinate: startCoordinate,
             destinationCoordinate: CLLocationCoordinate2D(latitude: nextItem.latitude, longitude: nextItem.longitude),
             leadTimeMinutes: nextItem.leadTimeMinutes,
@@ -1495,6 +1612,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             journeyPlanItemID: nextItem.id,
             startedAt: max(endedAt, nextItem.plannedStartAt)
         )
+        return NextPlannedSessionSeed(session: session, tripTitle: nextItem.title)
     }
 
     private func finalizeJourneyPlanItemStatus(
@@ -1571,16 +1689,9 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         }
     }
 
-    private func shouldAutoStartNextPlannedSession(at date: Date) -> Bool {
-        let isMovingNow = latestDetectedActivity != .stationary ||
-            max(locationService.currentLocation?.speed ?? 0, 0) >= 0.8
-        guard isMovingNow else { return false }
-
-        return journeyPlanSubject.value.contains { item in
-            Calendar.current.isDate(item.plannedStartAt, inSameDayAs: date) &&
-            item.status == .started &&
-            item.plannedStartAt <= date
-        }
+    private struct NextPlannedSessionSeed {
+        let session: TripSession
+        let tripTitle: String
     }
 
     private func writeGPXFile(

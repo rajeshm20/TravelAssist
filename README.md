@@ -1,4 +1,4 @@
-# TravelAssist (SwiftUI) Blueprint
+# TravelAssist (SwiftUI)
 <img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 45 30" src="https://github.com/user-attachments/assets/b23c2578-2196-4416-bab1-9bb68cf3efb5" />
 <img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 46 08" src="https://github.com/user-attachments/assets/67c16c82-4a2c-4ff4-b97b-5b20d80e0f31" />
 <img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 46 19" src="https://github.com/user-attachments/assets/0fee76a1-540a-4bbf-82f3-a12e217bc888" />

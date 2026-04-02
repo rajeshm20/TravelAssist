@@ -104,12 +104,23 @@ final class DestinationWeatherViewModel: ObservableObject {
                 let line = try await fetchDailyWeatherLine(for: coordinate, dayStart: normalizedDayStart)
                 states[key] = .success(line: line, fetchedAt: fetchedAt)
             } catch {
-                states[key] = .unavailable(reason: "Weather unavailable", fetchedAt: fetchedAt)
+                states[key] = .unavailable(reason: unavailableReason(for: error), fetchedAt: fetchedAt)
             }
             inFlight[key] = nil
         }
 
         inFlight[key] = task
+    }
+
+    private func unavailableReason(for error: Error) -> String {
+        let nsError = error as NSError
+        if nsError.domain.contains("WeatherDaemon.WDSJWTAuthenticatorServiceListener.Errors") {
+            return "WeatherKit not enabled"
+        }
+        if nsError.domain == NSURLErrorDomain {
+            return "No internet"
+        }
+        return "Weather unavailable"
     }
 
     private func fetchDailyWeatherLine(for coordinate: CLLocationCoordinate2D, dayStart: Date) async throws -> WeatherLine {
