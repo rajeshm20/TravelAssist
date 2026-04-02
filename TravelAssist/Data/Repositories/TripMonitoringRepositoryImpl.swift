@@ -2,6 +2,7 @@ import Combine
 import CoreLocation
 import Foundation
 import ActivityKit
+import UIKit
 
 final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private enum StorageKeys {
@@ -14,6 +15,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private let locationService: LocationService
     private let etaEstimator: ETAEstimator
     private let alertService: FakeCallAlertService
+    private let progressNotificationService: TripProgressNotificationService
     private let backgroundTaskScheduler: BackgroundTaskScheduler
     private let widgetSyncService: WidgetSyncService
     private let defaults: UserDefaults?
@@ -24,7 +26,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private let maximumArrivalClampMeters: CLLocationDistance = 45
     private let routePointMinimumDistanceMeters: CLLocationDistance = 5
     private let routePointMinimumIntervalSeconds: TimeInterval = 10
-    private let intervalCheckSeconds: TimeInterval = 180
+    private let intervalCheckSeconds: TimeInterval = 5 * 60
     private let idleTimeoutSeconds: TimeInterval = 10 * 60
     private let maxActivityEventsPerSession = 4000
     private let liveActivityMinimumUpdateIntervalSeconds: TimeInterval = 60
@@ -33,10 +35,13 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
 
     private var cancellables = Set<AnyCancellable>()
     private var intervalCancellable: AnyCancellable?
+    private var backgroundHeartbeatCancellable: AnyCancellable?
     private var estimateTask: Task<Void, Never>?
     private var hasTriggeredFakeCall = false
     private var hasTriggeredArrivalFakeCall = false
     private var hasReachedDestination = false
+    private var hasScheduledProgressNotifications = false
+    private var progressNotificationSessionID: UUID?
     private var liveActivity: Activity<TravelAssistWidgetAttributes>?
     private var currentRoutePoints: [PersistedTrackPoint] = []
     private var currentActivityEvents: [TripActivityEvent] = []
@@ -48,6 +53,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
     private var lastLiveActivityState: TravelAssistWidgetAttributes.ContentState?
     private var lastLiveActivityUpdateAt: Date?
     private let activityDetector = JourneyActivityDetector()
+    private var isInBackground = false
+    private let backgroundLocationRefreshSeconds: TimeInterval = 5 * 60
 
     private static let liveActivityStartQueue = DispatchQueue(label: "trip.monitoring.liveactivity.start")
 
@@ -79,6 +86,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         locationService: LocationService,
         etaEstimator: ETAEstimator,
         alertService: FakeCallAlertService,
+        progressNotificationService: TripProgressNotificationService,
         backgroundTaskScheduler: BackgroundTaskScheduler,
         widgetSyncService: WidgetSyncService,
         defaults: UserDefaults? = UserDefaults(suiteName: AppConstants.appGroupID)
@@ -86,12 +94,14 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         self.locationService = locationService
         self.etaEstimator = etaEstimator
         self.alertService = alertService
+        self.progressNotificationService = progressNotificationService
         self.backgroundTaskScheduler = backgroundTaskScheduler
         self.widgetSyncService = widgetSyncService
         self.defaults = defaults
 
         bindLocationUpdates()
         bindAuthorizationUpdates()
+        bindAppLifecycle()
         loadPersistedHistory()
         loadPersistedJourneyPlan()
         cleanupLiveActivitiesIfNoPersistedSession()
@@ -109,6 +119,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         hasTriggeredFakeCall = false
         hasTriggeredArrivalFakeCall = false
         hasReachedDestination = false
+        hasScheduledProgressNotifications = false
+        progressNotificationSessionID = resolvedSession.id
         runState = .active
         lastMovementDetectedAt = Date()
         lastMovementLocation = locationService.currentLocation
@@ -117,6 +129,18 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         sessionSubject.send(resolvedSession)
         if let journeyPlanItemID = resolvedSession.journeyPlanItemID {
             markJourneyPlanItemInProgressAndRecomputeSchedule(id: journeyPlanItemID, startedAt: resolvedSession.startedAt)
+        }
+
+        progressNotificationService.requestPermissionsIfNeeded()
+        if let journeyPlanItemID = resolvedSession.journeyPlanItemID,
+           let planItem = journeyPlanSubject.value.first(where: { $0.id == journeyPlanItemID }) {
+            hasScheduledProgressNotifications = true
+            progressNotificationService.scheduleQuarterProgressNotifications(
+                sessionID: resolvedSession.id,
+                tripTitle: planItem.title,
+                startedAt: resolvedSession.startedAt,
+                estimatedDurationSeconds: planItem.estimatedTravelDurationSeconds
+            )
         }
         snapshotSubject.send(nil)
         currentRoutePoints = [
@@ -171,6 +195,7 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         startLiveActivity(for: resolvedSession)
         startIntervalChecks()
         backgroundTaskScheduler.scheduleRefresh()
+        updateBackgroundHeartbeat()
 
         if let currentLocation = locationService.currentLocation {
             scheduleEstimate(for: currentLocation)
@@ -315,6 +340,57 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             .store(in: &cancellables)
     }
 
+    private func bindAppLifecycle() {
+        NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.isInBackground = true
+                self.updateBackgroundHeartbeat()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.isInBackground = false
+                self.stopBackgroundHeartbeat()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func updateBackgroundHeartbeat() {
+        stopBackgroundHeartbeat()
+        guard isInBackground, sessionSubject.value != nil else { return }
+
+        refreshBackgroundLocation()
+        backgroundHeartbeatCancellable = Timer.publish(
+            every: backgroundLocationRefreshSeconds,
+            on: .main,
+            in: .common
+        )
+        .autoconnect()
+        .sink { [weak self] _ in
+            self?.refreshBackgroundLocation()
+        }
+    }
+
+    private func stopBackgroundHeartbeat() {
+        backgroundHeartbeatCancellable?.cancel()
+        backgroundHeartbeatCancellable = nil
+    }
+
+    private func refreshBackgroundLocation() {
+        guard sessionSubject.value != nil else {
+            stopBackgroundHeartbeat()
+            return
+        }
+
+        locationService.requestOneTimeLocation()
+        if let location = locationService.currentLocation {
+            scheduleEstimate(for: location, forceRouteEstimate: true)
+        }
+    }
+
     private func startIntervalChecks() {
         intervalCancellable?.cancel()
         guard runState == .active else { return }
@@ -408,6 +484,21 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
             )
         } else {
             estimate = stabilizeEstimateIfStationary(rawEstimate, at: location)
+        }
+
+        if !hasScheduledProgressNotifications,
+           estimate.etaSeconds > 0,
+           !hasReachedDestination {
+            hasScheduledProgressNotifications = true
+            let tripTitle = session.journeyPlanItemID.flatMap { journeyPlanItemID in
+                journeyPlanSubject.value.first(where: { $0.id == journeyPlanItemID })?.title
+            }
+            progressNotificationService.scheduleQuarterProgressNotifications(
+                sessionID: session.id,
+                tripTitle: tripTitle,
+                startedAt: session.startedAt,
+                estimatedDurationSeconds: estimate.etaSeconds
+            )
         }
 
         let snapshot = TravelSnapshot(
@@ -745,8 +836,14 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         estimateTask?.cancel()
         estimateTask = nil
         stopIntervalChecks()
+        stopBackgroundHeartbeat()
 
         alertService.cancelPendingFakeCall()
+        if let progressNotificationSessionID {
+            progressNotificationService.cancelQuarterProgressNotifications(sessionID: progressNotificationSessionID)
+        }
+        hasScheduledProgressNotifications = false
+        progressNotificationSessionID = nil
         locationService.stopUpdates()
 
         currentRoutePoints.removeAll(keepingCapacity: false)

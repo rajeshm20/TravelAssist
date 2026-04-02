@@ -75,8 +75,8 @@
          </BuildableReference>
       </BuildableProductRunnable>
       <LocationScenarioReference
-         identifier = "../../TravelAssist/GPX/kanyakumari-bhagavathi-to-chennai-porur-toll.gpx"
-         referenceType = "0">
+         identifier = "Moscow, Russia"
+         referenceType = "1">
       </LocationScenarioReference>
    </LaunchAction>
    <ProfileAction

@@ -20,6 +20,7 @@ final class AppContainer {
         let locationService = CoreLocationService()
         let etaEstimator = MapKitETAEstimator()
         let alertService = LocalFakeCallAlertService()
+        let progressNotificationService = LocalTripProgressNotificationService()
         let bgScheduler = IOSBackgroundTaskScheduler()
         let widgetSync = SharedDefaultsWidgetSyncService(appGroupID: AppConstants.appGroupID)
         let currentLocationProvider = CurrentLocationProviderAdapter(locationService: locationService)
@@ -28,6 +29,7 @@ final class AppContainer {
             locationService: locationService,
             etaEstimator: etaEstimator,
             alertService: alertService,
+            progressNotificationService: progressNotificationService,
             backgroundTaskScheduler: bgScheduler,
             widgetSyncService: widgetSync
         )

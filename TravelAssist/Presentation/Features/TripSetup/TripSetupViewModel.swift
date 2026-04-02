@@ -359,13 +359,17 @@ final class TripSetupViewModel: ObservableObject {
             return nil
         }
 
+        guard let tomorrowStart = calendar.date(byAdding: .day, value: 1, to: todayStart) else { return nil }
+
         let todaysItems = items
-            .filter { calendar.isDateInToday($0.userPlannedStartAt) }
+            .filter { $0.approximateEndAt > todayStart && $0.plannedStartAt < tomorrowStart }
             .sorted { lhs, rhs in
-                if lhs.plannedStartAt == rhs.plannedStartAt {
+                let lhsStart = max(lhs.plannedStartAt, todayStart)
+                let rhsStart = max(rhs.plannedStartAt, todayStart)
+                if lhsStart == rhsStart {
                     return lhs.createdAt < rhs.createdAt
                 }
-                return lhs.plannedStartAt < rhs.plannedStartAt
+                return lhsStart < rhsStart
             }
 
         guard let candidate = (todaysItems.first(where: { $0.status == .inProgress }) ??

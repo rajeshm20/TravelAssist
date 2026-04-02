@@ -109,8 +109,8 @@ struct TravelStatusProvider: TimelineProvider {
                 planSummaryText: journeyPlanSummary(for: journeyPlan),
                 hasActiveTrip: true,
                 shouldShowWidget: true,
-                nextPlanTitle: nextTodayPlan?.title,
-                nextPlanCoordinate: nextTodayPlan.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+                nextPlanTitle: nextTodayPlan?.plan.title,
+                nextPlanCoordinate: nextTodayPlan.map { CLLocationCoordinate2D(latitude: $0.plan.latitude, longitude: $0.plan.longitude) }
             )
         }
 
@@ -133,25 +133,25 @@ struct TravelStatusProvider: TimelineProvider {
             )
         }
 
-        let modeSymbolName = nextPlan.selectedJourneyModeRaw.flatMap(WidgetJourneyMode.init(rawValue:))?.symbolName ?? "calendar"
-        let prefix = nextPlan.status == .inProgress ? "Current" : "Next"
-        let modeText = nextPlan.status == .inProgress ? "Trip In Progress" : "Next Trip"
+        let modeSymbolName = nextPlan.plan.selectedJourneyModeRaw.flatMap(WidgetJourneyMode.init(rawValue:))?.symbolName ?? "calendar"
+        let prefix = nextPlan.plan.status == .inProgress ? "Current" : "Next"
+        let modeText = nextPlan.plan.status == .inProgress ? "Trip In Progress" : "Next Trip"
 
         return TravelStatusEntry(
             date: .now,
-            distanceText: Self.timeFormatter.string(from: nextPlan.plannedStartAt),
-            etaText: Self.timeFormatter.string(from: nextPlan.approximateEndAt),
+            distanceText: Self.timeFormatter.string(from: nextPlan.displayStartAt),
+            etaText: Self.timeFormatter.string(from: nextPlan.displayEndAt),
             statusText: todayPlanStatusLine(for: journeyPlan),
             modeSymbolName: modeSymbolName,
             modeText: modeText,
-            distanceProgress: nextPlan.status == .completed ? 1 : 0,
+            distanceProgress: nextPlan.plan.status == .completed ? 1 : 0,
             timeProgress: 0,
             highlightedPlanText: planLine(for: nextPlan, prefix: prefix),
             planSummaryText: journeyPlanSummary(for: journeyPlan),
             hasActiveTrip: false,
             shouldShowWidget: true,
-            nextPlanTitle: nextPlan.title,
-            nextPlanCoordinate: CLLocationCoordinate2D(latitude: nextPlan.latitude, longitude: nextPlan.longitude)
+            nextPlanTitle: nextPlan.plan.title,
+            nextPlanCoordinate: CLLocationCoordinate2D(latitude: nextPlan.plan.latitude, longitude: nextPlan.plan.longitude)
         )
 
     }
@@ -297,18 +297,31 @@ struct TravelStatusProvider: TimelineProvider {
             plans.last
     }
 
-    private func nextRelevantPlanForToday(from plans: [WidgetJourneyPlanPayload]) -> WidgetJourneyPlanPayload? {
-        let todayPlans = plans
-            .filter { Calendar.current.isDateInToday($0.effectivePlannedDay) }
-            .sorted { $0.plannedStartAt < $1.plannedStartAt }
-        return todayPlans.first(where: { $0.status != .completed })
+    private struct WidgetJourneyPlanDisplay {
+        let plan: WidgetJourneyPlanPayload
+        let dayIndex: Int
+        let displayStartAt: Date
+        let displayEndAt: Date
+
+        var id: UUID { plan.id }
+    }
+
+    private func nextRelevantPlanForToday(from plans: [WidgetJourneyPlanPayload]) -> WidgetJourneyPlanDisplay? {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        let todayPlans = displayPlans(forDay: todayStart, from: plans)
+        let now = Date()
+        return todayPlans.first(where: { $0.plan.status != .completed && $0.displayEndAt >= now }) ??
+            todayPlans.first(where: { $0.plan.status != .completed })
     }
 
     private func todayPlanStatusLine(for plans: [WidgetJourneyPlanPayload]) -> String {
-        let todayPlans = plans.filter { Calendar.current.isDateInToday($0.effectivePlannedDay) }
-        let completedCount = todayPlans.filter { $0.status == .completed }.count
-        let remainingCount = todayPlans.filter { $0.status == .started }.count
-        let inProgressCount = todayPlans.filter { $0.status == .inProgress }.count
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        let todayPlans = displayPlans(forDay: todayStart, from: plans)
+        let completedCount = todayPlans.filter { $0.plan.status == .completed }.count
+        let remainingCount = todayPlans.filter { $0.plan.status == .started }.count
+        let inProgressCount = todayPlans.filter { $0.plan.status == .inProgress }.count
 
         var segments: [String] = []
         if completedCount > 0 {
@@ -325,11 +338,13 @@ struct TravelStatusProvider: TimelineProvider {
 
     private func journeyPlanSummary(for plans: [WidgetJourneyPlanPayload]) -> String? {
         guard !plans.isEmpty else { return nil }
-        let todayPlans = plans.filter { Calendar.current.isDateInToday($0.effectivePlannedDay) }
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        let todayPlans = displayPlans(forDay: todayStart, from: plans)
         if !todayPlans.isEmpty {
-            let inProgressCount = todayPlans.filter { $0.status == .inProgress }.count
-            let remainingCount = todayPlans.filter { $0.status == .started }.count
-            let completedCount = todayPlans.filter { $0.status == .completed }.count
+            let inProgressCount = todayPlans.filter { $0.plan.status == .inProgress }.count
+            let remainingCount = todayPlans.filter { $0.plan.status == .started }.count
+            let completedCount = todayPlans.filter { $0.plan.status == .completed }.count
 
             var segments: [String] = []
             if inProgressCount > 0 {
@@ -351,16 +366,61 @@ struct TravelStatusProvider: TimelineProvider {
     private func highlightedPlan(
         from plans: [WidgetJourneyPlanPayload],
         session: WidgetSessionPayload?
-    ) -> WidgetJourneyPlanPayload? {
+    ) -> WidgetJourneyPlanDisplay? {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+
         if let journeyPlanItemID = session?.journeyPlanItemID,
            let currentPlan = plans.first(where: { $0.id == journeyPlanItemID }) {
-            return currentPlan
+            return displayPlan(forDay: todayStart, plan: currentPlan) ?? defaultDisplayPlan(for: currentPlan)
         }
-        return nextRelevantPlan(from: plans)
+        guard let nextPlan = nextRelevantPlan(from: plans) else { return nil }
+        return displayPlan(forDay: todayStart, plan: nextPlan) ?? defaultDisplayPlan(for: nextPlan)
     }
 
-    private func planLine(for plan: WidgetJourneyPlanPayload, prefix: String) -> String {
-        "\(prefix): \(plan.title) • \(Self.timeFormatter.string(from: plan.plannedStartAt))-\(Self.timeFormatter.string(from: plan.approximateEndAt))"
+    private func planLine(for plan: WidgetJourneyPlanDisplay, prefix: String) -> String {
+        let daySuffix = plan.dayIndex > 1 ? " • Day \(plan.dayIndex)" : ""
+        return "\(prefix): \(plan.plan.title)\(daySuffix) • \(Self.timeFormatter.string(from: plan.displayStartAt))-\(Self.timeFormatter.string(from: plan.displayEndAt))"
+    }
+
+    private func displayPlans(forDay dayStart: Date, from plans: [WidgetJourneyPlanPayload]) -> [WidgetJourneyPlanDisplay] {
+        plans.compactMap { displayPlan(forDay: dayStart, plan: $0) }
+            .sorted { lhs, rhs in
+                if lhs.displayStartAt == rhs.displayStartAt {
+                    return lhs.plan.plannedStartAt < rhs.plan.plannedStartAt
+                }
+                return lhs.displayStartAt < rhs.displayStartAt
+            }
+    }
+
+    private func displayPlan(forDay dayStart: Date, plan: WidgetJourneyPlanPayload) -> WidgetJourneyPlanDisplay? {
+        let calendar = Calendar.current
+        guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return nil }
+        guard plan.approximateEndAt > dayStart, plan.plannedStartAt < dayEnd else { return nil }
+
+        let baseDay = calendar.startOfDay(for: plan.effectivePlannedDay)
+        let dayOffset = calendar.dateComponents([.day], from: baseDay, to: dayStart).day ?? 0
+        let dayIndex = max(dayOffset + 1, 1)
+
+        let displayStart = max(plan.plannedStartAt, dayStart)
+        let displayEnd = min(plan.approximateEndAt, dayEnd)
+        guard displayEnd > displayStart else { return nil }
+
+        return WidgetJourneyPlanDisplay(
+            plan: plan,
+            dayIndex: dayIndex,
+            displayStartAt: displayStart,
+            displayEndAt: displayEnd
+        )
+    }
+
+    private func defaultDisplayPlan(for plan: WidgetJourneyPlanPayload) -> WidgetJourneyPlanDisplay {
+        WidgetJourneyPlanDisplay(
+            plan: plan,
+            dayIndex: 1,
+            displayStartAt: plan.plannedStartAt,
+            displayEndAt: plan.approximateEndAt
+        )
     }
 
     private static let timeFormatter: DateFormatter = {

@@ -130,6 +130,14 @@ final class CoreLocationService: NSObject, LocationService {
             return
         }
 
+        if wantsStandardUpdates {
+            manager.pausesLocationUpdatesAutomatically = false
+            manager.activityType = .automotiveNavigation
+        } else {
+            manager.pausesLocationUpdatesAutomatically = true
+            manager.activityType = .other
+        }
+
         if wantsStandardUpdates && !isStandardUpdatesActive {
             manager.startUpdatingLocation()
             isStandardUpdatesActive = true

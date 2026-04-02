@@ -7,7 +7,7 @@ protocol BackgroundTaskScheduler {
 }
 
 final class IOSBackgroundTaskScheduler: BackgroundTaskScheduler {
-    private let refreshIntervalSeconds: TimeInterval = 30 * 60
+    private let refreshIntervalSeconds: TimeInterval = 5 * 60
     private var refreshHandler: (() -> Void)?
     private var isRegistered = false
 

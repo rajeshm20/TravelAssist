@@ -11,6 +11,7 @@ struct TripSetupView: View {
     @StateObject private var fakeCallFeedback = FakeIncomingCallFeedback()
     @State private var isDestinationPickerPresented = false
     @State private var isHistoryPresented = false
+    @State private var historySheetDetent: PresentationDetent = .fraction(0.25)
     @State private var isRoutePreviewExpanded = false
     @State private var isJourneyPlanExpanded = true
     @State private var isJourneyPlanEditorPresented = false
@@ -25,6 +26,8 @@ struct TripSetupView: View {
     @State private var activeFakeCallCallerName = "Travel Assist"
     @State private var activeFakeCallMessage = AppConstants.fakeCallNotificationMessage
     @StateObject private var routePreviewViewModel = RoutePreviewViewModel()
+    @StateObject private var destinationWeatherViewModel = DestinationWeatherViewModel()
+    @StateObject private var routeWeatherViewModel = RouteWeatherViewModel()
 
     init(
         viewModel: TripSetupViewModel,
@@ -94,7 +97,7 @@ struct TripSetupView: View {
                                 .background(Color(red: 0.99, green: 0.94, blue: 0.90), in: Capsule())
                                 .foregroundStyle(Color(red: 0.98, green: 0.47, blue: 0.22))
 
-                                if !journeyPlanItemsForSelectedDate.isEmpty {
+                                if !journeyPlanDisplayItemsForSelectedDate.isEmpty {
                                     Button("All") {
                                         previewAllJourneyPlanRoutes()
                                     }
@@ -159,7 +162,7 @@ struct TripSetupView: View {
 
                                 Spacer()
 
-                                Text("\(journeyPlanItemsForSelectedDate.count) stop\(journeyPlanItemsForSelectedDate.count == 1 ? "" : "s")")
+                                Text("\(journeyPlanDisplayItemsForSelectedDate.count) stop\(journeyPlanDisplayItemsForSelectedDate.count == 1 ? "" : "s")")
                                     .font(.caption.weight(.semibold))
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
@@ -314,6 +317,7 @@ struct TripSetupView: View {
 
                             RoutePreviewMapView(
                                 viewModel: routePreviewViewModel,
+                                weatherViewModel: routeWeatherViewModel,
                                 isMonitoringActive: monitoringViewModel.isMonitoring,
                                 onExpand: {
                                     isRoutePreviewExpanded = true
@@ -405,6 +409,10 @@ struct TripSetupView: View {
                 viewModel.onAppear()
                 routePreviewViewModel.onAppear()
                 autoPreviewTodayJourneyPlanIfNeeded()
+                destinationWeatherViewModel.prefetch(
+                    items: journeyPlanDisplayItemsForSelectedDate.map(\.item),
+                    selectedDay: selectedJourneyPlanDate
+                )
             }
             .onDisappear {
                 routePreviewViewModel.onDisappear()
@@ -418,6 +426,10 @@ struct TripSetupView: View {
                 } else {
                     handleSelectedJourneyPlanDateChange()
                 }
+                destinationWeatherViewModel.prefetch(
+                    items: journeyPlanDisplayItemsForSelectedDate.map(\.item),
+                    selectedDay: selectedJourneyPlanDate
+                )
             }
             .onReceive(NotificationCenter.default.publisher(for: .fakeCallPresentationRequested)) { notification in
                 guard let request = FakeCallPresentationRequest.from(userInfo: notification.userInfo) else {
@@ -444,8 +456,11 @@ struct TripSetupView: View {
                 )
             }
             .sheet(isPresented: $isHistoryPresented) {
-                MonitoringHistoryBottomSheet(sessions: monitoringViewModel.historySessions)
-                    .presentationDetents([.fraction(0.25), .medium, .large])
+                MonitoringHistoryBottomSheet(
+                    sessions: monitoringViewModel.historySessions,
+                    selectedDetent: $historySheetDetent
+                )
+                    .presentationDetents([.fraction(0.25), .medium, .large], selection: $historySheetDetent)
                     .presentationDragIndicator(.visible)
             }
             .fullScreenCover(isPresented: $isFakeCallPresented) {
@@ -486,6 +501,7 @@ struct TripSetupView: View {
             .fullScreenCover(isPresented: $isRoutePreviewExpanded) {
                 RoutePreviewFullscreenView(
                     viewModel: routePreviewViewModel,
+                    weatherViewModel: routeWeatherViewModel,
                     monitoringViewModel: monitoringViewModel
                 )
             }
@@ -547,48 +563,85 @@ struct TripSetupView: View {
     }
 
     @ViewBuilder
-    private func journeyPlanRow(_ item: JourneyPlanItem) -> some View {
+    private func journeyPlanRow(_ item: JourneyPlanDisplayItem) -> some View {
         let isSelected = (!isPreviewingAllJourneyPlanRoutes && selectedJourneyPlanPreviewItemID == item.id)
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: item.selectedJourneyMode.symbolName)
+            Image(systemName: item.item.selectedJourneyMode.symbolName)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color(red: 0.98, green: 0.47, blue: 0.22))
                 .frame(width: 28, height: 28)
                 .background(Color(red: 0.99, green: 0.94, blue: 0.90), in: Circle())
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.title)
+                Text(item.item.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.black.opacity(0.82))
 
-                if let subtitle = item.subtitle, !subtitle.isEmpty {
+                if let subtitle = item.item.subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
 
-                Text("Lead time \(leadTimeText(minutes: item.leadTimeMinutes))")
+                Text("Lead time \(leadTimeText(minutes: item.item.leadTimeMinutes))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+
+                if let weatherLine = destinationWeatherViewModel.weatherLine(for: item.item, selectedDay: selectedJourneyPlanDate) {
+                    HStack(spacing: 6) {
+                        Image(systemName: weatherLine.symbolName)
+                            .font(.caption2.weight(.semibold))
+                        Text(weatherLine.summaryText)
+                            .lineLimit(1)
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                } else if destinationWeatherViewModel.isLoading(for: item.item, selectedDay: selectedJourneyPlanDate) {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .scaleEffect(0.65)
+                        Text("Weather…")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                } else if destinationWeatherViewModel.unavailableReason(for: item.item, selectedDay: selectedJourneyPlanDate) != nil {
+                    HStack(spacing: 6) {
+                        Image(systemName: "questionmark.circle")
+                            .font(.caption2.weight(.semibold))
+                        Text("Weather unavailable")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
             }
 
             Spacer(minLength: 10)
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text(Self.journeyPlanTimeFormatter.string(from: item.plannedStartAt))
+                if item.dayIndex > 1 {
+                    Text("Day \(item.dayIndex)")
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(red: 0.94, green: 0.95, blue: 1.0), in: Capsule())
+                        .foregroundStyle(Color(red: 0.19, green: 0.45, blue: 0.93))
+                }
+
+                Text(Self.journeyPlanTimeFormatter.string(from: item.displayStartAt))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.black.opacity(0.76))
-                Text(Self.journeyPlanTimeFormatter.string(from: item.approximateEndAt))
+                Text(Self.journeyPlanTimeFormatter.string(from: item.displayEndAt))
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
-                Text(journeyPlanStatusText(for: item))
+                Text(journeyPlanStatusText(for: item.item))
                     .font(.caption2)
-                    .foregroundStyle(journeyPlanStatusColor(for: item))
-                if item.status != .completed {
+                    .foregroundStyle(journeyPlanStatusColor(for: item.item))
+                if item.item.status != .completed {
                     Button {
-                        editingJourneyPlanItem = item
-                        selectedJourneyPlanDate = Calendar.current.startOfDay(for: item.userPlannedStartAt)
+                        editingJourneyPlanItem = item.item
+                        selectedJourneyPlanDate = Calendar.current.startOfDay(for: item.item.userPlannedStartAt)
                         isJourneyPlanEditorPresented = true
                     } label: {
                         Image(systemName: "pencil.circle.fill")
@@ -597,9 +650,9 @@ struct TripSetupView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                if item.status == .started {
+                if item.item.status == .started {
                     Button {
-                        pendingDeleteJourneyPlanItem = item
+                        pendingDeleteJourneyPlanItem = item.item
                     } label: {
                         Image(systemName: "trash.circle.fill")
                             .font(.title3)
@@ -682,23 +735,13 @@ struct TripSetupView: View {
         }
 
         if isPreviewingAllJourneyPlanRoutes {
-            routePreviewViewModel.previewJourneyPlanItems(journeyPlanItemsForSelectedDate)
+            routePreviewViewModel.previewJourneyPlanItems(journeyPlanDisplayItemsForSelectedDate)
             return
         }
 
         if let selectedID = selectedJourneyPlanPreviewItemID,
-           let selectedItem = monitoringViewModel.journeyPlanItems.first(where: { $0.id == selectedID }) {
-            let origin: CLLocationCoordinate2D?
-            if let startLat = selectedItem.startLatitude, let startLon = selectedItem.startLongitude {
-                origin = CLLocationCoordinate2D(latitude: startLat, longitude: startLon)
-            } else {
-                origin = nil
-            }
-            routePreviewViewModel.updateTransportType(for: selectedItem.selectedJourneyMode)
-            routePreviewViewModel.updateOriginOverride(coordinate: origin)
-            routePreviewViewModel.updateDestination(
-                coordinate: CLLocationCoordinate2D(latitude: selectedItem.latitude, longitude: selectedItem.longitude)
-            )
+           let selectedItem = journeyPlanDisplayItemsForSelectedDate.first(where: { $0.item.id == selectedID }) {
+            routePreviewViewModel.previewJourneyPlanItems([selectedItem])
             return
         }
 
@@ -714,6 +757,13 @@ struct TripSetupView: View {
         isPreviewingAllJourneyPlanRoutes = false
         selectedJourneyPlanPreviewItemID = item.id
         viewModel.previewJourneyPlanItem(item)
+        syncRoutePreviewDestination()
+    }
+
+    private func previewJourneyPlanItem(_ item: JourneyPlanDisplayItem) {
+        isPreviewingAllJourneyPlanRoutes = false
+        selectedJourneyPlanPreviewItemID = item.item.id
+        viewModel.previewJourneyPlanItem(item.item)
         syncRoutePreviewDestination()
     }
 
@@ -746,6 +796,11 @@ struct TripSetupView: View {
     }
 
     private func handleSelectedJourneyPlanDateChange() {
+        destinationWeatherViewModel.prefetch(
+            items: journeyPlanDisplayItemsForSelectedDate.map(\.item),
+            selectedDay: selectedJourneyPlanDate
+        )
+
         guard !monitoringViewModel.isMonitoring else { return }
 
         if isPreviewingAllJourneyPlanRoutes {
@@ -754,15 +809,15 @@ struct TripSetupView: View {
         }
 
         if let selectedID = selectedJourneyPlanPreviewItemID,
-           journeyPlanItemsForSelectedDate.contains(where: { $0.id == selectedID }) {
+           journeyPlanDisplayItemsForSelectedDate.contains(where: { $0.item.id == selectedID }) {
             syncRoutePreviewDestination()
             return
         }
 
         let candidate =
-            journeyPlanItemsForSelectedDate.first(where: { $0.status == .inProgress }) ??
-            journeyPlanItemsForSelectedDate.first(where: { $0.status == .started }) ??
-            journeyPlanItemsForSelectedDate.first
+            journeyPlanDisplayItemsForSelectedDate.first(where: { $0.item.status == .inProgress }) ??
+            journeyPlanDisplayItemsForSelectedDate.first(where: { $0.item.status == .started }) ??
+            journeyPlanDisplayItemsForSelectedDate.first
 
         guard let candidate else {
             selectedJourneyPlanPreviewItemID = nil
@@ -875,22 +930,53 @@ struct TripSetupView: View {
         Calendar.current.isDateInToday(selectedJourneyPlanDate) ? "Today's Journey Plan" : "Journey Plan"
     }
 
-    private var journeyPlanItemsForSelectedDate: [JourneyPlanItem] {
-        monitoringViewModel.journeyPlanItems
-            .filter { Calendar.current.isDate($0.userPlannedStartAt, inSameDayAs: selectedJourneyPlanDate) }
-            .sorted { lhs, rhs in
-                if lhs.plannedStartAt == rhs.plannedStartAt {
-                    return lhs.createdAt < rhs.createdAt
-                }
-                return lhs.plannedStartAt < rhs.plannedStartAt
-            }
+    private var journeyPlanDisplayItemsForSelectedDate: [JourneyPlanDisplayItem] {
+        journeyPlanDisplayItems(for: selectedJourneyPlanDate, from: monitoringViewModel.journeyPlanItems)
     }
 
     private var journeyPlanSections: [JourneyPlanSection] {
         JourneyPlanTimeBucket.allCases.compactMap { bucket in
-            let items = journeyPlanItemsForSelectedDate.filter { bucket.contains($0.plannedStartAt) }
+            let items = journeyPlanDisplayItemsForSelectedDate.filter { bucket.contains($0.displayStartAt) }
             guard !items.isEmpty else { return nil }
             return JourneyPlanSection(title: bucket.title, items: items)
+        }
+    }
+
+    private func journeyPlanDisplayItems(for date: Date, from items: [JourneyPlanItem]) -> [JourneyPlanDisplayItem] {
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: date)
+        guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return [] }
+
+        var results: [JourneyPlanDisplayItem] = []
+        results.reserveCapacity(items.count)
+
+        for item in items {
+            guard item.approximateEndAt > dayStart, item.plannedStartAt < dayEnd else { continue }
+
+            let segmentStart = max(item.plannedStartAt, dayStart)
+            let segmentEnd = min(item.approximateEndAt, dayEnd)
+            guard segmentEnd > segmentStart else { continue }
+
+            let baseDay = calendar.startOfDay(for: item.userPlannedStartAt)
+            let dayOffset = calendar.dateComponents([.day], from: baseDay, to: dayStart).day ?? 0
+            let dayIndex = max(dayOffset + 1, 1)
+
+            results.append(
+                JourneyPlanDisplayItem(
+                    id: item.id,
+                    displayStartAt: segmentStart,
+                    displayEndAt: segmentEnd,
+                    dayIndex: dayIndex,
+                    item: item
+                )
+            )
+        }
+
+        return results.sorted { lhs, rhs in
+            if lhs.displayStartAt == rhs.displayStartAt {
+                return lhs.item.createdAt < rhs.item.createdAt
+            }
+            return lhs.displayStartAt < rhs.displayStartAt
         }
     }
 
@@ -936,9 +1022,17 @@ struct TripSetupView: View {
 
 private struct JourneyPlanSection: Identifiable {
     let title: String
-    let items: [JourneyPlanItem]
+    let items: [JourneyPlanDisplayItem]
 
     var id: String { title }
+}
+
+private struct JourneyPlanDisplayItem: Identifiable {
+    let id: UUID
+    let displayStartAt: Date
+    let displayEndAt: Date
+    let dayIndex: Int
+    let item: JourneyPlanItem
 }
 
 private enum JourneyPlanTimeBucket: CaseIterable {
@@ -1129,6 +1223,7 @@ private struct DestinationMapPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var searchViewModel = DestinationSearchViewModel()
     @StateObject private var routePreviewViewModel = RoutePreviewViewModel()
+    @StateObject private var routeWeatherViewModel = RouteWeatherViewModel()
     @State private var query = ""
     @State private var pendingSelection: DestinationDraft?
     @State private var previewTask: Task<Void, Never>?
@@ -1185,6 +1280,7 @@ private struct DestinationMapPickerSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             RoutePreviewMapView(
                 viewModel: routePreviewViewModel,
+                weatherViewModel: routeWeatherViewModel,
                 isMonitoringActive: false,
                 onExpand: nil,
                 shouldFollowUserWhenMoving: false
@@ -1570,6 +1666,7 @@ private struct JourneyPlanEditorSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var routePreviewViewModel = RoutePreviewViewModel()
+    @StateObject private var routeWeatherViewModel = RouteWeatherViewModel()
     @State private var isDestinationPickerPresented = false
     @State private var isDateTimeExpanded = false
     @State private var destinationDraft: DestinationDraft?
@@ -1646,6 +1743,7 @@ private struct JourneyPlanEditorSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     RoutePreviewMapView(
                         viewModel: routePreviewViewModel,
+                        weatherViewModel: routeWeatherViewModel,
                         isMonitoringActive: false,
                         onExpand: nil,
                         shouldFollowUserWhenMoving: false
@@ -2051,7 +2149,8 @@ private struct JourneyPlanEditorSheet: View {
 
 private struct MonitoringHistoryBottomSheet: View {
     let sessions: [TripHistorySession]
-    @State private var expandedSessions = Set<UUID>()
+    @Binding var selectedDetent: PresentationDetent
+    @State private var expandedSessionID: UUID?
 
     var body: some View {
         NavigationStack {
@@ -2064,12 +2163,18 @@ private struct MonitoringHistoryBottomSheet: View {
                     ForEach(sessions) { session in
                         DisclosureGroup(
                             isExpanded: Binding(
-                                get: { expandedSessions.contains(session.id) },
+                                get: { expandedSessionID == session.id },
                                 set: { isExpanded in
                                     if isExpanded {
-                                        expandedSessions.insert(session.id)
+                                        expandedSessionID = session.id
+                                        selectedDetent = .large
                                     } else {
-                                        expandedSessions.remove(session.id)
+                                        if expandedSessionID == session.id {
+                                            expandedSessionID = nil
+                                        }
+                                        if selectedDetent == .large {
+                                            selectedDetent = .medium
+                                        }
                                     }
                                 }
                             )
@@ -2401,10 +2506,27 @@ private struct RoutePreviewAnnotationItem: Identifiable {
     let title: String
     let subtitle: String?
     let coordinate: CLLocationCoordinate2D
+    let symbolName: String?
+    let isSevere: Bool
+
+    init(
+        title: String,
+        subtitle: String?,
+        coordinate: CLLocationCoordinate2D,
+        symbolName: String? = nil,
+        isSevere: Bool = false
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.coordinate = coordinate
+        self.symbolName = symbolName
+        self.isSevere = isSevere
+    }
 }
 
 private struct RoutePreviewMapView: View {
     @ObservedObject var viewModel: RoutePreviewViewModel
+    @ObservedObject var weatherViewModel: RouteWeatherViewModel
     let isMonitoringActive: Bool
     let onExpand: (() -> Void)?
     let shouldFollowUserWhenMoving: Bool
@@ -2418,13 +2540,14 @@ private struct RoutePreviewMapView: View {
                 destinationCoordinate: viewModel.destinationCoordinate,
                 routePolyline: viewModel.route?.polyline,
                 multiRoutePolylines: viewModel.multiRoutePolylines,
-                extraAnnotations: viewModel.multiRouteAnnotations,
+                extraAnnotations: viewModel.multiRouteAnnotations + weatherAnnotations,
                 focusRequestToken: viewModel.focusRequestToken,
                 shouldFollowUserWhenMoving: shouldFollowUserWhenMoving
             )
 
             VStack {
                 HStack(spacing: 10) {
+                    weatherOverlay
                     Spacer()
                     Button {
                         viewModel.focusOnCurrentRoute()
@@ -2464,11 +2587,61 @@ private struct RoutePreviewMapView: View {
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
             }
         }
+        .onAppear {
+            weatherViewModel.refresh(currentCoordinate: viewModel.currentCoordinate, route: viewModel.route)
+        }
+        .onChange(of: viewModel.currentCoordinate?.latitude) { _, _ in
+            weatherViewModel.refresh(currentCoordinate: viewModel.currentCoordinate, route: viewModel.route)
+        }
+        .onChange(of: viewModel.currentCoordinate?.longitude) { _, _ in
+            weatherViewModel.refresh(currentCoordinate: viewModel.currentCoordinate, route: viewModel.route)
+        }
+        .onChange(of: viewModel.route?.expectedTravelTime) { _, _ in
+            weatherViewModel.refresh(currentCoordinate: viewModel.currentCoordinate, route: viewModel.route)
+        }
+    }
+
+    private var weatherAnnotations: [RoutePreviewAnnotationItem] {
+        weatherViewModel.markers.map { marker in
+            RoutePreviewAnnotationItem(
+                title: marker.title,
+                subtitle: marker.subtitle,
+                coordinate: marker.coordinate,
+                symbolName: marker.symbolName,
+                isSevere: marker.isSevere
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var weatherOverlay: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let line = weatherViewModel.currentLine {
+                weatherPill(symbolName: line.symbolName, text: "\(line.title): \(line.detail)")
+            }
+            if let line = weatherViewModel.enrouteLine {
+                weatherPill(symbolName: line.symbolName, text: "\(line.title): \(line.detail)")
+            }
+        }
+    }
+
+    private func weatherPill(symbolName: String, text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbolName)
+                .font(.caption2.weight(.semibold))
+            Text(text)
+                .font(.caption2)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial, in: Capsule())
     }
 }
 
 private struct RoutePreviewFullscreenView: View {
     @ObservedObject var viewModel: RoutePreviewViewModel
+    @ObservedObject var weatherViewModel: RouteWeatherViewModel
     @ObservedObject var monitoringViewModel: MonitoringViewModel
     @Environment(\.dismiss) private var dismiss
 
@@ -2476,6 +2649,7 @@ private struct RoutePreviewFullscreenView: View {
         ZStack(alignment: .top) {
             RoutePreviewMapView(
                 viewModel: viewModel,
+                weatherViewModel: weatherViewModel,
                 isMonitoringActive: monitoringViewModel.isMonitoring,
                 onExpand: nil,
                 shouldFollowUserWhenMoving: monitoringViewModel.isMonitoring
@@ -2630,6 +2804,20 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
+        private final class SymbolAnnotation: MKPointAnnotation {
+            let symbolName: String?
+            let isSevere: Bool
+
+            init(item: RoutePreviewAnnotationItem) {
+                self.symbolName = item.symbolName
+                self.isSevere = item.isSevere
+                super.init()
+                coordinate = item.coordinate
+                title = item.title
+                subtitle = item.subtitle
+            }
+        }
+
         private var lastFollowLocation: CLLocation?
         private var lastFocusRequestToken = 0
 
@@ -2681,10 +2869,7 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
 
             if !extraAnnotations.isEmpty {
                 extraAnnotations.forEach { item in
-                    let annotation = MKPointAnnotation()
-                    annotation.coordinate = item.coordinate
-                    annotation.title = item.title
-                    annotation.subtitle = item.subtitle
+                    let annotation = SymbolAnnotation(item: item)
                     mapView.addAnnotation(annotation)
                     mergeIntoVisibleRect(MKMapRect(
                         origin: MKMapPoint(item.coordinate),
@@ -2747,6 +2932,42 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
             )
         }
 
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if annotation is MKUserLocation {
+                return nil
+            }
+
+            let identifier = "route-preview-marker"
+            let view: MKMarkerAnnotationView
+            if let dequeued = mapView.dequeueReusableAnnotationView(withIdentifier: identifier) as? MKMarkerAnnotationView {
+                view = dequeued
+                view.annotation = annotation
+            } else {
+                view = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                view.canShowCallout = true
+            }
+
+            if let symbolAnnotation = annotation as? SymbolAnnotation, let symbol = symbolAnnotation.symbolName {
+                view.glyphImage = UIImage(systemName: symbol)
+                view.markerTintColor = symbolAnnotation.isSevere ? UIColor.systemRed : UIColor.systemBlue
+                view.glyphTintColor = UIColor.white
+            } else {
+                view.glyphImage = nil
+                view.glyphText = nil
+                let title = (annotation.title ?? nil) ?? ""
+                if title == "Destination" {
+                    view.markerTintColor = UIColor.systemRed
+                } else if title == "Current" || title == "Start" {
+                    view.markerTintColor = UIColor.systemGreen
+                } else {
+                    view.markerTintColor = UIColor.systemOrange
+                }
+                view.glyphTintColor = UIColor.white
+            }
+
+            return view
+        }
+
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             guard let polyline = overlay as? MKPolyline else {
                 return MKOverlayRenderer(overlay: overlay)
@@ -2757,9 +2978,21 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
             } else if polyline.title == "remaining" {
                 renderer.strokeColor = UIColor.systemOrange
             } else if let title = polyline.title,
-                      title.hasPrefix("trip-"),
-                      let index = Int(title.replacingOccurrences(of: "trip-", with: "")) {
-                renderer.strokeColor = tripStrokeColor(for: index)
+                      title.hasPrefix("trip-") {
+                let parts = title.split(separator: "-")
+                let tripIndex = parts.count >= 2 ? Int(parts[1]) : nil
+                let dayIndex = parts.first(where: { $0.hasPrefix("day") })
+                    .flatMap { Int($0.dropFirst(3)) } ?? 1
+
+                if let tripIndex {
+                    renderer.strokeColor = tripStrokeColor(for: tripIndex)
+                } else {
+                    renderer.strokeColor = UIColor.systemBlue
+                }
+
+                if dayIndex > 1 {
+                    renderer.lineDashPattern = [NSNumber(value: 10), NSNumber(value: 8)]
+                }
             } else {
                 renderer.strokeColor = UIColor.systemBlue
             }
@@ -2867,7 +3100,7 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
     private var activeRouteRequestID: UUID?
     private var lastLocationRequestAt: Date?
     private var multiRouteTask: Task<Void, Never>?
-    private var pendingMultiPreviewItems: [JourneyPlanItem]?
+    private var pendingMultiPreviewItems: [JourneyPlanDisplayItem]?
 
     private let maximumHorizontalAccuracyMeters: CLLocationAccuracy = 80
     private let maximumLocationAgeSeconds: TimeInterval = 20
@@ -2937,12 +3170,12 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
         refreshRouteIfPossible()
     }
 
-    func previewJourneyPlanItems(_ items: [JourneyPlanItem]) {
+    func previewJourneyPlanItems(_ items: [JourneyPlanDisplayItem]) {
         let sortedItems = items.sorted { lhs, rhs in
-            if lhs.plannedStartAt == rhs.plannedStartAt {
-                return lhs.createdAt < rhs.createdAt
+            if lhs.displayStartAt == rhs.displayStartAt {
+                return lhs.item.createdAt < rhs.item.createdAt
             }
-            return lhs.plannedStartAt < rhs.plannedStartAt
+            return lhs.displayStartAt < rhs.displayStartAt
         }
 
         cancelRouteComputation()
@@ -2963,7 +3196,7 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
             return
         }
 
-        let needsCurrentLocation = sortedItems.contains { $0.startLatitude == nil || $0.startLongitude == nil }
+        let needsCurrentLocation = sortedItems.contains { $0.item.startLatitude == nil || $0.item.startLongitude == nil }
         if needsCurrentLocation, currentCoordinate == nil {
             pendingMultiPreviewItems = sortedItems
             routeStatusMessage = "Waiting for current location..."
@@ -2978,8 +3211,9 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
             var annotations: [RoutePreviewAnnotationItem] = []
             var previousDestination: CLLocationCoordinate2D?
 
-            for (index, item) in sortedItems.enumerated() {
+            for (index, displayItem) in sortedItems.enumerated() {
                 guard !Task.isCancelled else { return }
+                let item = displayItem.item
                 let destination = CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)
                 let origin: CLLocationCoordinate2D?
                 if let startLat = item.startLatitude, let startLon = item.startLongitude {
@@ -2999,11 +3233,11 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
                         transportType: self.transportType(for: item.selectedJourneyMode)
                     )
                     let polyline = route.polyline
-                    polyline.title = "trip-\(index)"
+                    polyline.title = "trip-\(index)-day\(displayItem.dayIndex)"
                     polylines.append(polyline)
                     annotations.append(
                         RoutePreviewAnnotationItem(
-                            title: "Trip \(index + 1)",
+                            title: displayItem.dayIndex > 1 ? "Trip \(index + 1) • Day \(displayItem.dayIndex)" : "Trip \(index + 1)",
                             subtitle: item.title,
                             coordinate: destination
                         )
