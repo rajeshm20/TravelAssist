@@ -7,7 +7,8 @@
 <img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 44 34" src="https://github.com/user-attachments/assets/76babf6b-4f71-4334-bb26-9494edc6613b" />
 
 This is a production-oriented starter architecture for your app idea:
-TestFlight link - https://testflight.apple.com/join/86KVjXkG
+
+- TestFlight link - https://testflight.apple.com/join/86KVjXkG
 - User sets destination + lead time (5/10/20/30/custom minutes)
 - App tracks live location in foreground/background
 - ETA is recalculated from location updates
