@@ -22,10 +22,11 @@ final class RouteWeatherViewModel: ObservableObject {
     }
 
     @Published var currentLine: WeatherLine?
-    @Published var enrouteLine: WeatherLine?
     @Published var markers: [WeatherMarker] = []
+    @Published var needsWeatherKitSetup: Bool = false
 
     private let service = WeatherService.shared
+    private let geocoder = CLGeocoder()
     private var task: Task<Void, Never>?
     private var lastRouteSignature: String?
     private var lastCurrentSignature: String?
@@ -45,6 +46,14 @@ final class RouteWeatherViewModel: ObservableObject {
     private var cache: [CacheKey: CacheEntry] = [:]
     private let cacheTTLSeconds: TimeInterval = 15 * 60
     private let refreshMinIntervalSeconds: TimeInterval = 5 * 60
+
+    private struct PlaceEntry {
+        let name: String
+        let fetchedAt: Date
+    }
+
+    private var placeCache: [CacheKey: PlaceEntry] = [:]
+    private let placeCacheTTLSeconds: TimeInterval = 60 * 60
 
     func refresh(
         currentCoordinate: CLLocationCoordinate2D?,
@@ -101,7 +110,6 @@ final class RouteWeatherViewModel: ObservableObject {
     ) async {
         if refreshRoute {
             markers = []
-            enrouteLine = nil
         }
 
         guard let currentCoordinate else {
@@ -114,28 +122,34 @@ final class RouteWeatherViewModel: ObservableObject {
         if refreshCurrent {
             do {
                 let currentWeather = try await weather(for: currentCoordinate, now: now)
+                needsWeatherKitSetup = false
                 currentLine = WeatherLine(
                     symbolName: symbolName(for: currentWeather.currentWeather.condition),
                     title: "Current",
                     detail: currentDetailText(from: currentWeather.currentWeather)
                 )
             } catch {
-                currentLine = isAuthError(error)
-                    ? WeatherLine(symbolName: "exclamationmark.triangle.fill", title: "Weather", detail: "WeatherKit not enabled")
-                    : nil
+                if isAuthError(error) {
+                    needsWeatherKitSetup = true
+                    currentLine = WeatherLine(symbolName: "exclamationmark.triangle.fill", title: "Weather", detail: "WeatherKit not enabled")
+                } else {
+                    currentLine = nil
+                }
             }
         }
 
         guard refreshRoute, let route else { return }
-        let sampled = sampleAlong(route.polyline, maxPoints: 5)
+        let sampled = sampleAlong(route.polyline, maxPoints: routeSampleBudget(for: route))
         guard sampled.count >= 2 else { return }
 
         let travelSeconds = max(route.expectedTravelTime, 1)
-        var pointFindings: [(severity: Severity, marker: WeatherMarker?, line: WeatherLine)] = []
-        pointFindings.reserveCapacity(sampled.count)
+        var routeMarkers: [WeatherMarker] = []
+        routeMarkers.reserveCapacity(sampled.count)
+        var seenPlaces: Set<String> = []
 
         for (index, coordinate) in sampled.enumerated() {
             guard !Task.isCancelled else { return }
+            if index == 0 { continue } // "Current" is already shown separately.
             let fraction = Double(index) / Double(max(sampled.count - 1, 1))
             let expectedAt = now.addingTimeInterval(travelSeconds * fraction)
 
@@ -147,20 +161,28 @@ final class RouteWeatherViewModel: ObservableObject {
                 } else {
                     hour = weather.currentWeather
                 }
-                let (severity, marker) = findingFor(hour: hour, at: expectedAt, coordinate: coordinate)
-                let line = WeatherLine(
-                    symbolName: symbolName(for: hour.condition),
-                    title: "On the way",
-                    detail: hourDetailText(from: hour, expectedAt: expectedAt)
+                let unit: UnitTemperature = (Locale.current.measurementSystem == .metric) ? .celsius : .fahrenheit
+                let temp = Int(hour.temperature.converted(to: unit).value.rounded())
+                let place = await placeName(for: coordinate, now: now)
+                let placeTitle = (place?.isEmpty == false) ? place! : "Along route"
+                let placeKey = placeTitle.lowercased()
+                if index != sampled.count - 1, seenPlaces.contains(placeKey) {
+                    continue
+                }
+                seenPlaces.insert(placeKey)
+                let subtitle = routeMarkerSubtitle(from: hour, expectedAt: expectedAt)
+                routeMarkers.append(
+                    WeatherMarker(
+                        coordinate: coordinate,
+                        symbolName: symbolName(for: hour.condition),
+                        title: "\(placeTitle) \(temp)°",
+                        subtitle: subtitle,
+                        isSevere: isSevereTravelWeather(hour: hour)
+                    )
                 )
-                pointFindings.append((severity: severity, marker: marker, line: line))
             } catch {
                 if isAuthError(error) {
-                    enrouteLine = WeatherLine(
-                        symbolName: "exclamationmark.triangle.fill",
-                        title: "On the way",
-                        detail: "WeatherKit not enabled"
-                    )
+                    needsWeatherKitSetup = true
                     markers = []
                     return
                 }
@@ -168,21 +190,7 @@ final class RouteWeatherViewModel: ObservableObject {
             }
         }
 
-        let significantMarkers = pointFindings.compactMap(\.marker)
-        markers = significantMarkers
-
-        let worst = pointFindings.map(\.severity).max() ?? .normal
-        if worst > .normal, let bestMarker = significantMarkers.first(where: { severity(for: $0) == worst }) ?? significantMarkers.first {
-            enrouteLine = WeatherLine(
-                symbolName: bestMarker.symbolName,
-                title: "On the way",
-                detail: bestMarker.title
-            )
-        } else {
-            // Always show a general "on the way" forecast using the midpoint.
-            let midIndex = max(0, min(sampled.count / 2, pointFindings.count - 1))
-            enrouteLine = pointFindings.indices.contains(midIndex) ? pointFindings[midIndex].line : nil
-        }
+        markers = routeMarkers.uniquedByProximity()
 
         // Try to augment with severe alerts using a low call budget (start/mid/end).
         await loadAlertsIfAvailable(sampled: sampled, travelSeconds: travelSeconds, now: now)
@@ -227,14 +235,7 @@ final class RouteWeatherViewModel: ObservableObject {
             // Merge + dedupe by coordinate proximity.
             let merged = (markers + alertMarkers).uniquedByProximity()
             markers = merged
-            if enrouteLine == nil, let first = alertMarkers.first {
-                enrouteLine = WeatherLine(symbolName: first.symbolName, title: "On the way", detail: first.title)
-            }
         }
-    }
-
-    private func severity(for marker: WeatherMarker) -> Severity {
-        marker.isSevere ? .severe : .caution
     }
 
     private func weather(for coordinate: CLLocationCoordinate2D, now: Date) async throws -> Weather {
@@ -270,9 +271,47 @@ final class RouteWeatherViewModel: ObservableObject {
         cache = cache.filter { now.timeIntervalSince($0.value.fetchedAt) < cacheTTLSeconds }
     }
 
+    private func placeName(for coordinate: CLLocationCoordinate2D, now: Date) async -> String? {
+        prunePlaceCache(now: now)
+        let key = CacheKey(
+            latE3: Int((coordinate.latitude * 1_000).rounded()),
+            lonE3: Int((coordinate.longitude * 1_000).rounded())
+        )
+        if let entry = placeCache[key], now.timeIntervalSince(entry.fetchedAt) < placeCacheTTLSeconds {
+            return entry.name
+        }
+
+        do {
+            let placemarks = try await geocoder.reverseGeocodeLocation(
+                CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            )
+            let placemark = placemarks.first
+            let name = placemark?.locality ??
+                placemark?.subAdministrativeArea ??
+                placemark?.administrativeArea ??
+                placemark?.name
+            guard let name, !name.isEmpty else { return nil }
+            placeCache[key] = PlaceEntry(name: name, fetchedAt: now)
+            return name
+        } catch {
+            return nil
+        }
+    }
+
+    private func prunePlaceCache(now: Date) {
+        placeCache = placeCache.filter { now.timeIntervalSince($0.value.fetchedAt) < placeCacheTTLSeconds }
+    }
+
     private func isAuthError(_ error: Error) -> Bool {
         let nsError = error as NSError
         return nsError.domain.contains("WeatherDaemon.WDSJWTAuthenticatorServiceListener.Errors")
+    }
+
+    private func routeSampleBudget(for route: MKRoute) -> Int {
+        let seconds = max(route.expectedTravelTime, 0)
+        if seconds >= (24 * 60 * 60) { return 9 }
+        if seconds >= (10 * 60 * 60) { return 7 }
+        return 5
     }
 
     private func sampleAlong(_ polyline: MKPolyline, maxPoints: Int) -> [CLLocationCoordinate2D] {
@@ -381,6 +420,23 @@ final class RouteWeatherViewModel: ObservableObject {
         let time = Self.timeFormatter.string(from: expectedAt)
         let windText = windKph >= 35 ? " • \(windKph) km/h" : ""
         return "\(hour.condition.description.capitalized) \(temp)° • \(time)\(windText)"
+    }
+
+    private func routeMarkerSubtitle(from hour: WeatherProtocol, expectedAt: Date) -> String {
+        let windKph = Int(hour.wind.speed.converted(to: .kilometersPerHour).value.rounded())
+        let time = Self.timeFormatter.string(from: expectedAt)
+        let windText = windKph >= 35 ? " • \(windKph) km/h" : ""
+        return "\(hour.condition.description.capitalized) • \(time)\(windText)"
+    }
+
+    private func isSevereTravelWeather(hour: WeatherProtocol) -> Bool {
+        let condition = hour.condition
+        let wind = hour.wind.speed.converted(to: .kilometersPerHour).value
+        let isThunder = condition == .thunderstorms
+        let isHeavyRain = condition == .heavyRain
+        let isSnow = condition == .snow || condition == .flurries || condition == .sleet || condition == .hail || condition == .freezingRain
+        let isHighWind = wind >= 45
+        return isThunder || isHeavyRain || isSnow || isHighWind
     }
 
     private static let timeFormatter: DateFormatter = {

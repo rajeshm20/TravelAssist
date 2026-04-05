@@ -4,6 +4,8 @@ import Foundation
 final class AppContainer {
     private let backgroundTaskScheduler: BackgroundTaskScheduler
     private let tripMonitoringRepository: TripMonitoringRepository
+    private let iCloudHistorySyncController: ICloudHistorySyncController
+    private let iCloudGPXSyncController: ICloudGPXSyncController
 
     private let buildTripSessionUseCase: BuildTripSessionUseCase
     private let prepareCurrentLocationUseCase: PrepareCurrentLocationUseCase
@@ -36,6 +38,8 @@ final class AppContainer {
 
         self.backgroundTaskScheduler = bgScheduler
         self.tripMonitoringRepository = repository
+        self.iCloudHistorySyncController = ICloudHistorySyncController(repository: repository)
+        self.iCloudGPXSyncController = ICloudGPXSyncController(repository: repository)
         self.buildTripSessionUseCase = BuildTripSessionUseCaseImpl(locationProvider: currentLocationProvider)
         self.prepareCurrentLocationUseCase = PrepareCurrentLocationUseCaseImpl(locationProvider: currentLocationProvider)
         self.startUseCase = StartTripMonitoringUseCaseImpl(repository: repository)

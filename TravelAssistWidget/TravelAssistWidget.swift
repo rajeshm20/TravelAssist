@@ -36,6 +36,22 @@ struct TravelStatusProvider: TimelineProvider {
         return formatter
     }()
 
+    private static func etaText(from etaSeconds: Double) -> String {
+        let totalMinutes = max(Int((etaSeconds / 60).rounded()), 0)
+        let days = totalMinutes / (24 * 60)
+        let remainingMinutes = totalMinutes % (24 * 60)
+        let hours = remainingMinutes / 60
+        let minutes = remainingMinutes % 60
+
+        if days > 0 {
+            return String(format: "%dd %02d:%02d", days, hours, minutes)
+        }
+        if totalMinutes >= 60 {
+            return String(format: "%d hr %02d min", hours, minutes)
+        }
+        return "\(totalMinutes) min"
+    }
+
     func placeholder(in context: Context) -> TravelStatusEntry {
         TravelStatusEntry(
             date: .now,
@@ -80,7 +96,7 @@ struct TravelStatusProvider: TimelineProvider {
                 distanceText = String(format: "%.1f km", snapshot.distanceMeters / 1000)
             }
             let etaMinutes = Int((snapshot.etaSeconds / 60).rounded())
-            let etaText = "\(etaMinutes) min"
+            let etaText = Self.etaText(from: snapshot.etaSeconds)
             let modePresentation = resolvedModePresentation(snapshot: snapshot, session: session)
             let statusText = resolvedStatusText(
                 snapshot: snapshot,

@@ -150,8 +150,14 @@ final class MonitoringViewModel: ObservableObject {
 
     private static func formatETA(_ etaSeconds: TimeInterval) -> String {
         let totalMinutes = max(Int((etaSeconds / 60.0).rounded()), 0)
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
+        let days = totalMinutes / (24 * 60)
+        let remainingMinutes = totalMinutes % (24 * 60)
+        let hours = remainingMinutes / 60
+        let minutes = remainingMinutes % 60
+
+        if days > 0 {
+            return String(format: "%dd %02d:%02d", days, hours, minutes)
+        }
         return String(format: "%02d hr %02d min", hours, minutes)
     }
 

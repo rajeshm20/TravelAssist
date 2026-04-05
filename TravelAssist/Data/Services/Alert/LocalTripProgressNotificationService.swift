@@ -33,8 +33,15 @@ final class LocalTripProgressNotificationService: TripProgressNotificationServic
 
             let content = UNMutableNotificationContent()
             content.title = title
-            content.body = "Trip update: \(progressPercent)% of estimated time elapsed."
+            let remaining = max(duration - (quarterSeconds * Double(quarter)), 0)
+            let remainingMinutes = Int((remaining / 60.0).rounded())
+            if remainingMinutes > 0 {
+                content.body = "Trip update: \(progressPercent)% elapsed. ETA ~ \(remainingMinutes) min remaining."
+            } else {
+                content.body = "Trip update: \(progressPercent)% elapsed."
+            }
             content.sound = .default
+            content.interruptionLevel = .timeSensitive
 
             let triggerComponents = Calendar.current.dateComponents(
                 [.year, .month, .day, .hour, .minute, .second],
@@ -60,4 +67,3 @@ final class LocalTripProgressNotificationService: TripProgressNotificationServic
         "\(AppConstants.tripProgressNotificationPrefix).\(sessionID.uuidString).q\(quarter)"
     }
 }
-

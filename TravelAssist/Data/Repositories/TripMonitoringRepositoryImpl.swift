@@ -1390,6 +1390,78 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         defaults.set(data, forKey: StorageKeys.historySessions)
     }
 
+    func mergeHistoryFromICloud(_ remoteSessions: [TripHistorySession]) {
+        guard !remoteSessions.isEmpty else { return }
+
+        let local = historySubject.value
+        let localByID = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+
+        var mergedByID: [UUID: TripHistorySession] = localByID
+        for remote in remoteSessions {
+            if let existing = mergedByID[remote.id] {
+                // Keep local GPX path if we have one.
+                let keptPath = existing.gpxFilePath
+                mergedByID[remote.id] = TripHistorySession(
+                    id: remote.id,
+                    startedAt: remote.startedAt,
+                    endedAt: remote.endedAt,
+                    startLatitude: remote.startLatitude,
+                    startLongitude: remote.startLongitude,
+                    destinationLatitude: remote.destinationLatitude,
+                    destinationLongitude: remote.destinationLongitude,
+                    pointsCount: remote.pointsCount,
+                    gpxFileName: remote.gpxFileName.isEmpty ? existing.gpxFileName : remote.gpxFileName,
+                    gpxFilePath: keptPath,
+                    completionStatus: remote.completionStatus,
+                    selectedJourneyMode: remote.selectedJourneyMode,
+                    finalDetectedActivity: remote.finalDetectedActivity,
+                    activityEvents: remote.activityEvents.isEmpty ? existing.activityEvents : remote.activityEvents
+                )
+            } else {
+                mergedByID[remote.id] = remote
+            }
+        }
+
+        let merged = mergedByID.values
+            .sorted { $0.startedAt > $1.startedAt }
+
+        let limited = merged.count > 100 ? Array(merged.prefix(100)) : merged
+        historySubject.send(limited)
+        persistHistory(limited)
+    }
+
+    func currentHistorySessionsForSync() -> [TripHistorySession] {
+        historySubject.value
+    }
+
+    func updateHistorySessionGPXPath(id: UUID, path: String) {
+        guard !path.isEmpty else { return }
+        var updated = historySubject.value
+        guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
+        let existing = updated[index]
+        guard existing.gpxFilePath != path else { return }
+
+        updated[index] = TripHistorySession(
+            id: existing.id,
+            startedAt: existing.startedAt,
+            endedAt: existing.endedAt,
+            startLatitude: existing.startLatitude,
+            startLongitude: existing.startLongitude,
+            destinationLatitude: existing.destinationLatitude,
+            destinationLongitude: existing.destinationLongitude,
+            pointsCount: existing.pointsCount,
+            gpxFileName: existing.gpxFileName,
+            gpxFilePath: path,
+            completionStatus: existing.completionStatus,
+            selectedJourneyMode: existing.selectedJourneyMode,
+            finalDetectedActivity: existing.finalDetectedActivity,
+            activityEvents: existing.activityEvents
+        )
+
+        historySubject.send(updated)
+        persistHistory(updated)
+    }
+
     private func persistJourneyPlan(_ items: [JourneyPlanItem]) {
         guard let defaults else { return }
         guard let data = try? encoder.encode(items) else { return }

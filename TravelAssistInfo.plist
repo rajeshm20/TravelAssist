@@ -10,6 +10,19 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>TravelMate</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>GPX File</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.xml</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -26,12 +39,16 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSApplicationCategoryType</key>
+	<string></string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Used to track your journey and alert before destination.</string>
+	<string>Used to track your journey and update the map to update your current location with alert before destination.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Used to track your journey and alert before destination.</string>
+	<string>Used to track your journey and update the map to update your current location with alert before destination.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Used to listen for a quick voice confirmation to auto start the next trip.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

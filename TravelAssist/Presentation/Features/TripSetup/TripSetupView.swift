@@ -3,6 +3,7 @@ import MapKit
 import Combine
 import AVFoundation
 import AudioToolbox
+import CoreLocation
 
 struct TripSetupView: View {
     @ObservedObject var viewModel: TripSetupViewModel
@@ -29,6 +30,10 @@ struct TripSetupView: View {
     @StateObject private var routePreviewViewModel = RoutePreviewViewModel()
     @StateObject private var destinationWeatherViewModel = DestinationWeatherViewModel()
     @StateObject private var routeWeatherViewModel = RouteWeatherViewModel()
+    @State private var isSettingsPresented = false
+    @AppStorage(AppConstants.settingICloudHistorySyncEnabledKey) private var isICloudHistorySyncEnabled = false
+    @State private var shouldShowLocationSettingsAlert = false
+    @Environment(\.openURL) private var openURL
 
     init(
         viewModel: TripSetupViewModel,
@@ -63,6 +68,17 @@ struct TripSetupView: View {
                             Text(Self.headerDateFormatter.string(from: Date()))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
+
+                            Button {
+                                isSettingsPresented = true
+                            } label: {
+                                Image(systemName: "gearshape.fill")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(8)
+                                    .background(Color.white.opacity(0.7), in: Circle())
+                            }
+                            .buttonStyle(.plain)
                         }
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -414,9 +430,13 @@ struct TripSetupView: View {
                     items: journeyPlanDisplayItemsForSelectedDate.map(\.item),
                     selectedDay: selectedJourneyPlanDate
                 )
+                updateLocationSettingsAlertIfNeeded()
             }
             .onDisappear {
                 routePreviewViewModel.onDisappear()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                updateLocationSettingsAlertIfNeeded()
             }
             .onChange(of: viewModel.selectedJourneyMode) { _, _ in
                 viewModel.applySelectedJourneyModeToActiveSession()
@@ -453,6 +473,19 @@ struct TripSetupView: View {
                 DestinationMapPickerSheet(initialSelection: selectedDestinationDraft) { destination in
                     handleDestinationSelection(destination)
                 }
+            }
+            .sheet(isPresented: $isSettingsPresented) {
+                SettingsSheet(isICloudHistorySyncEnabled: $isICloudHistorySyncEnabled)
+            }
+            .alert("Enable Location Access", isPresented: $shouldShowLocationSettingsAlert) {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                }
+                Button("Not Now", role: .cancel) {}
+            } message: {
+                Text("Location permission is currently denied. Enable it in Settings → Privacy & Security → Location Services → TravelMate to allow route previews and trip monitoring.")
             }
             .sheet(isPresented: $isJourneyPlanEditorPresented, onDismiss: {
                 editingJourneyPlanItem = nil
@@ -878,6 +911,12 @@ struct TripSetupView: View {
         routePreviewViewModel.focusOnCurrentRoute()
     }
 
+    private func updateLocationSettingsAlertIfNeeded() {
+        let manager = CLLocationManager()
+        let status = manager.authorizationStatus
+        shouldShowLocationSettingsAlert = (status == .denied || status == .restricted)
+    }
+
     private func isCurrentActiveDestination(_ coordinate: CLLocationCoordinate2D) -> Bool {
         guard let activeDestination = monitoringViewModel.activeSession?.destinationCoordinate else {
             return false
@@ -1060,6 +1099,56 @@ Weather is unavailable because WeatherKit is not enabled for this build.
 2) Ensure you’re using a paid Apple Developer team (not “Personal Team”)
 3) Delete the app from the device and Run again so the new provisioning is applied
 """
+}
+
+private struct SettingsSheet: View {
+    @Binding var isICloudHistorySyncEnabled: Bool
+    @AppStorage(AppConstants.settingICloudGPXSyncEnabledKey) private var isICloudGPXSyncEnabled = false
+    @Environment(\.dismiss) private var dismiss
+
+    private var isICloudAvailable: Bool {
+        FileManager.default.url(forUbiquityContainerIdentifier: nil) != nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Sync") {
+                    Toggle(isOn: $isICloudHistorySyncEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Sync Session History to iCloud")
+                            Text("Keeps your trip history in sync across devices.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(!isICloudAvailable)
+
+                    Toggle(isOn: $isICloudGPXSyncEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Sync GPX files to iCloud")
+                            Text("Keeps your .gpx tracks available for map preview on other devices.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(!isICloudAvailable)
+
+                    if !isICloudAvailable {
+                        Text("iCloud is not available on this device/account, or the app is missing iCloud capability.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
 }
 
 private struct JourneyPlanSection: Identifiable {
@@ -2193,6 +2282,7 @@ private struct MonitoringHistoryBottomSheet: View {
     let sessions: [TripHistorySession]
     @Binding var selectedDetent: PresentationDetent
     @State private var expandedSessionID: UUID?
+    @StateObject private var gpxPreviewViewModel = GPXTrackPreviewViewModel()
 
     var body: some View {
         NavigationStack {
@@ -2222,6 +2312,9 @@ private struct MonitoringHistoryBottomSheet: View {
                             )
                         ) {
                             VStack(alignment: .leading, spacing: 8) {
+                                if expandedSessionID == session.id {
+                                    gpxPreviewSection(session: session)
+                                }
                                 historyRow(title: "Started", value: Self.dateTimeFormatter.string(from: session.startedAt))
                                 historyRow(title: "Ended", value: Self.dateTimeFormatter.string(from: session.endedAt))
                                 historyRow(title: "Duration", value: Self.durationText(session.duration))
@@ -2270,6 +2363,46 @@ private struct MonitoringHistoryBottomSheet: View {
             .navigationTitle("Session History")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    @ViewBuilder
+    private func gpxPreviewSection(session: TripHistorySession) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            RoutePreviewUIKitMap(
+                originCoordinate: CLLocationCoordinate2D(latitude: session.startLatitude, longitude: session.startLongitude),
+                originTitle: "Start",
+                currentCoordinate: nil,
+                destinationCoordinate: CLLocationCoordinate2D(latitude: session.destinationLatitude, longitude: session.destinationLongitude),
+                routePolyline: gpxPreviewViewModel.polyline,
+                multiRoutePolylines: [],
+                extraAnnotations: [],
+                focusRequestToken: expandedSessionID?.hashValue ?? 0,
+                shouldFollowUserWhenMoving: false
+            )
+            .frame(height: 160)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+            )
+            .onAppear {
+                gpxPreviewViewModel.load(session: session)
+            }
+
+            if gpxPreviewViewModel.isLoading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                    Text("Loading GPX…")
+                        .font(.caption2)
+                }
+            } else if let status = gpxPreviewViewModel.statusText {
+                Text(status)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.bottom, 6)
     }
 
     @ViewBuilder
@@ -2543,6 +2676,11 @@ private struct DestinationDraft {
     let estimatedTravelTime: TimeInterval?
 }
 
+private enum RoutePreviewAnnotationStyle {
+    case standard
+    case weatherBubble
+}
+
 private struct RoutePreviewAnnotationItem: Identifiable {
     let id: UUID = UUID()
     let title: String
@@ -2550,19 +2688,22 @@ private struct RoutePreviewAnnotationItem: Identifiable {
     let coordinate: CLLocationCoordinate2D
     let symbolName: String?
     let isSevere: Bool
+    let style: RoutePreviewAnnotationStyle
 
     init(
         title: String,
         subtitle: String?,
         coordinate: CLLocationCoordinate2D,
         symbolName: String? = nil,
-        isSevere: Bool = false
+        isSevere: Bool = false,
+        style: RoutePreviewAnnotationStyle = .standard
     ) {
         self.title = title
         self.subtitle = subtitle
         self.coordinate = coordinate
         self.symbolName = symbolName
         self.isSevere = isSevere
+        self.style = style
     }
 }
 
@@ -2656,7 +2797,8 @@ private struct RoutePreviewMapView: View {
                 subtitle: marker.subtitle,
                 coordinate: marker.coordinate,
                 symbolName: marker.symbolName,
-                isSevere: marker.isSevere
+                isSevere: marker.isSevere,
+                style: .weatherBubble
             )
         }
     }
@@ -2667,11 +2809,8 @@ private struct RoutePreviewMapView: View {
             if let line = weatherViewModel.currentLine {
                 weatherPill(symbolName: line.symbolName, text: "\(line.title): \(line.detail)")
             }
-            if let line = weatherViewModel.enrouteLine {
-                weatherPill(symbolName: line.symbolName, text: "\(line.title): \(line.detail)")
-            }
-            if weatherViewModel.currentLine?.detail.contains("WeatherKit") == true ||
-                weatherViewModel.enrouteLine?.detail.contains("WeatherKit") == true {
+            if weatherViewModel.needsWeatherKitSetup ||
+                weatherViewModel.currentLine?.detail.contains("WeatherKit") == true {
                 Button {
                     isWeatherKitHelpPresented = true
                 } label: {
@@ -2872,14 +3011,119 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
         private final class SymbolAnnotation: MKPointAnnotation {
             let symbolName: String?
             let isSevere: Bool
+            let style: RoutePreviewAnnotationStyle
 
             init(item: RoutePreviewAnnotationItem) {
                 self.symbolName = item.symbolName
                 self.isSevere = item.isSevere
+                self.style = item.style
                 super.init()
                 coordinate = item.coordinate
                 title = item.title
                 subtitle = item.subtitle
+            }
+        }
+
+        private final class WeatherBubbleAnnotationView: MKAnnotationView {
+            private let backgroundView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+            private let iconView = UIImageView()
+            private let titleLabel = UILabel()
+            private let subtitleLabel = UILabel()
+            private let stack = UIStackView()
+
+            override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+                super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+                setup()
+            }
+
+            required init?(coder: NSCoder) {
+                super.init(coder: coder)
+                setup()
+            }
+
+            private func setup() {
+                canShowCallout = true
+                displayPriority = .required
+                collisionMode = .circle
+                centerOffset = CGPoint(x: 0, y: -18)
+
+                backgroundView.clipsToBounds = true
+                backgroundView.layer.cornerRadius = 12
+                backgroundView.layer.borderWidth = 1
+                backgroundView.layer.borderColor = UIColor.black.withAlphaComponent(0.08).cgColor
+
+                iconView.contentMode = .scaleAspectFit
+                iconView.tintColor = .label
+
+                titleLabel.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+                titleLabel.textColor = .label
+                titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+                subtitleLabel.font = UIFont.systemFont(ofSize: 10, weight: .regular)
+                subtitleLabel.textColor = .secondaryLabel
+                subtitleLabel.numberOfLines = 1
+                subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+                let textStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+                textStack.axis = .vertical
+                textStack.spacing = 1
+
+                stack.axis = .horizontal
+                stack.alignment = .center
+                stack.spacing = 6
+                stack.addArrangedSubview(iconView)
+                stack.addArrangedSubview(textStack)
+
+                backgroundView.contentView.addSubview(stack)
+                addSubview(backgroundView)
+
+                backgroundView.translatesAutoresizingMaskIntoConstraints = false
+                stack.translatesAutoresizingMaskIntoConstraints = false
+
+                NSLayoutConstraint.activate([
+                    backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                    backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                    backgroundView.topAnchor.constraint(equalTo: topAnchor),
+                    backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+                    iconView.widthAnchor.constraint(equalToConstant: 16),
+                    iconView.heightAnchor.constraint(equalToConstant: 16),
+
+                    stack.leadingAnchor.constraint(equalTo: backgroundView.contentView.leadingAnchor, constant: 8),
+                    stack.trailingAnchor.constraint(equalTo: backgroundView.contentView.trailingAnchor, constant: -8),
+                    stack.topAnchor.constraint(equalTo: backgroundView.contentView.topAnchor, constant: 6),
+                    stack.bottomAnchor.constraint(equalTo: backgroundView.contentView.bottomAnchor, constant: -6)
+                ])
+            }
+
+            func configure(title: String?, subtitle: String?, symbolName: String?, isSevere: Bool) {
+                titleLabel.text = title
+                subtitleLabel.text = subtitle
+
+                if let subtitle, !subtitle.isEmpty {
+                    subtitleLabel.isHidden = false
+                } else {
+                    subtitleLabel.isHidden = true
+                }
+
+                if let symbolName {
+                    iconView.image = UIImage(systemName: symbolName)
+                    iconView.isHidden = false
+                } else {
+                    iconView.image = nil
+                    iconView.isHidden = true
+                }
+
+                if isSevere {
+                    backgroundView.layer.borderColor = UIColor.systemRed.withAlphaComponent(0.35).cgColor
+                } else {
+                    backgroundView.layer.borderColor = UIColor.black.withAlphaComponent(0.08).cgColor
+                }
+
+                setNeedsLayout()
+                layoutIfNeeded()
+                let targetSize = backgroundView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+                bounds = CGRect(origin: .zero, size: CGSize(width: max(80, targetSize.width), height: targetSize.height))
             }
         }
 
@@ -3000,6 +3244,25 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             if annotation is MKUserLocation {
                 return nil
+            }
+
+            if let symbolAnnotation = annotation as? SymbolAnnotation,
+               symbolAnnotation.style == .weatherBubble {
+                let identifier = "route-preview-weather-bubble"
+                let view: WeatherBubbleAnnotationView
+                if let dequeued = mapView.dequeueReusableAnnotationView(withIdentifier: identifier) as? WeatherBubbleAnnotationView {
+                    view = dequeued
+                    view.annotation = annotation
+                } else {
+                    view = WeatherBubbleAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                }
+                view.configure(
+                    title: annotation.title ?? nil,
+                    subtitle: annotation.subtitle ?? nil,
+                    symbolName: symbolAnnotation.symbolName,
+                    isSevere: symbolAnnotation.isSevere
+                )
+                return view
             }
 
             let identifier = "route-preview-marker"

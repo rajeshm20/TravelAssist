@@ -99,6 +99,9 @@ final class LocalFakeCallAlertService: NSObject, FakeCallAlertService {
         scheduledCallWorkItem = workItem
 
         requestSpeechPermissionsIfNeeded()
+        FakeCallDecisionCenter.shared.arm { [weak self] accepted in
+            self?.finishDecision(accepted)
+        }
 
         if seconds <= 0 {
             if Thread.isMainThread {
@@ -111,14 +114,20 @@ final class LocalFakeCallAlertService: NSObject, FakeCallAlertService {
             if scheduledCallWorkItem === workItem {
                 scheduledCallWorkItem = nil
             }
+            scheduleDecisionNotification()
             return
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, seconds - 0.25)) { [weak self] in
+            self?.scheduleDecisionNotification()
+        }
     }
 
     func cancelPendingFakeCall() {
         center.removePendingNotificationRequests(withIdentifiers: [AppConstants.fakeCallNotificationID])
+        center.removePendingNotificationRequests(withIdentifiers: [AppConstants.fakeCallDecisionNotificationID])
+        center.removeDeliveredNotifications(withIdentifiers: [AppConstants.fakeCallDecisionNotificationID])
         scheduledCallWorkItem?.cancel()
         scheduledCallWorkItem = nil
         decisionTimeoutWorkItem?.cancel()
@@ -127,6 +136,7 @@ final class LocalFakeCallAlertService: NSObject, FakeCallAlertService {
             // Treat cancellation as decline.
             decisionContext = nil
         }
+        FakeCallDecisionCenter.shared.clear()
     }
 
     private func reportIncomingFakeCall() {
@@ -216,6 +226,9 @@ final class LocalFakeCallAlertService: NSObject, FakeCallAlertService {
         decisionTimeoutWorkItem = nil
 
         stopListening()
+        center.removePendingNotificationRequests(withIdentifiers: [AppConstants.fakeCallDecisionNotificationID])
+        center.removeDeliveredNotifications(withIdentifiers: [AppConstants.fakeCallDecisionNotificationID])
+        FakeCallDecisionCenter.shared.clear()
 
         guard var context = decisionContext else {
             requestEndActiveCall()
@@ -233,6 +246,25 @@ final class LocalFakeCallAlertService: NSObject, FakeCallAlertService {
         decisionContext = nil
 
         requestEndActiveCall()
+    }
+
+    private func scheduleDecisionNotification() {
+        guard decisionContext != nil else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Travel Assist"
+        content.body = pendingPromptMessage
+        content.sound = .default
+        content.categoryIdentifier = AppConstants.fakeCallDecisionCategoryID
+        content.interruptionLevel = .timeSensitive
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: AppConstants.fakeCallDecisionNotificationID,
+            content: content,
+            trigger: trigger
+        )
+        center.add(request)
     }
 
     private func beginListeningForYesNo() {

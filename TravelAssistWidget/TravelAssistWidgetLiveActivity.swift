@@ -31,7 +31,7 @@ struct TravelAssistWidgetLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Text("ETA \(context.state.etaMinutes)m")
+                    Text("ETA \(etaText(from: context.state.etaMinutes))")
                         .font(.headline)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -48,7 +48,7 @@ struct TravelAssistWidgetLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                Text("\(context.state.etaMinutes)m")
+                Text(etaCompactText(from: context.state.etaMinutes))
                     .font(.caption2)
             } compactTrailing: {
                 Image(systemName: stateSymbolName(context.state.modeSymbolName))
@@ -69,7 +69,7 @@ private struct LiveActivityLockScreenView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(
-                    "Arriving in \(Text("\(max(state.etaMinutes, 0)) mins").foregroundStyle(.orange))"
+                    "Arriving in \(Text(etaText(from: state.etaMinutes)).foregroundStyle(.orange))"
                 )
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.9))
@@ -119,6 +119,37 @@ private struct LiveActivityLockScreenView: View {
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
     }
+}
+
+private func etaText(from etaMinutes: Int) -> String {
+    let totalMinutes = max(etaMinutes, 0)
+    let days = totalMinutes / (24 * 60)
+    let remainingMinutes = totalMinutes % (24 * 60)
+    let hours = remainingMinutes / 60
+    let minutes = remainingMinutes % 60
+
+    if days > 0 {
+        return String(format: "%dd %02d:%02d", days, hours, minutes)
+    }
+    if totalMinutes >= 60 {
+        return String(format: "%d hr %02d min", hours, minutes)
+    }
+    return "\(totalMinutes) min"
+}
+
+private func etaCompactText(from etaMinutes: Int) -> String {
+    let totalMinutes = max(etaMinutes, 0)
+    let days = totalMinutes / (24 * 60)
+    let remainingMinutes = totalMinutes % (24 * 60)
+    let hours = remainingMinutes / 60
+
+    if days > 0 {
+        return "\(days)d"
+    }
+    if totalMinutes >= 60 {
+        return "\(hours)h"
+    }
+    return "\(totalMinutes)m"
 }
 
 private func stateSymbolName(_ rawSymbol: String) -> String {
