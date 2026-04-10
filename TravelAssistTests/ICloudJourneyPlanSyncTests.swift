@@ -69,6 +69,57 @@ struct ICloudJourneyPlanSyncTests {
         #expect(latest.count == 1)
         #expect(latest.first?.title == "Remote")
     }
+
+    @Test("Tombstone deletion removes item on merge")
+    func testMergeAppliesDeletionTombstone() async throws {
+        let suiteName = "TravelAssistTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let repository = TripMonitoringRepositoryImpl(
+            locationService: TestLocationService(),
+            etaEstimator: TestETAEstimator(),
+            alertService: TestFakeCallAlertService(),
+            backgroundTaskScheduler: TestBackgroundTaskScheduler(),
+            widgetSyncService: TestWidgetSyncService(),
+            defaults: defaults
+        )
+
+        var latest: [JourneyPlanItem] = []
+        let cancellable = repository.journeyPlanPublisher.sink { latest = $0 }
+        defer { cancellable.cancel() }
+
+        let itemID = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let local = JourneyPlanItem(
+            id: itemID,
+            title: "Local",
+            subtitle: nil,
+            latitude: 1,
+            longitude: 2,
+            userPlannedStartAt: t0,
+            plannedStartAt: t0,
+            estimatedTravelDurationSeconds: 600,
+            selectedJourneyMode: .car,
+            leadTimeMinutes: 5,
+            status: .started,
+            createdAt: t0,
+            updatedAt: t0
+        )
+
+        repository.addJourneyPlanItem(local)
+        #expect(latest.count == 1)
+
+        let tombstone = ICloudJourneyPlanSyncPayload.JourneyPlanTombstone(
+            id: itemID,
+            deletedAt: t0.addingTimeInterval(10)
+        )
+
+        repository.mergeJourneyPlanFromICloud([], deleted: [tombstone])
+        #expect(latest.isEmpty)
+    }
 }
 
 private final class TestLocationService: LocationService {

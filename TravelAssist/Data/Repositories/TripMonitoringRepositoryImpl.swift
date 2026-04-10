@@ -4,13 +4,14 @@ import Foundation
 import ActivityKit
 import UIKit
 
-final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
-    private enum StorageKeys {
-        static let activeSession = "trip.active.session"
-        static let historySessions = "trip.history.sessions"
-        static let journeyPlanItems = "trip.journey.plan"
-        static let liveActivityID = "trip.live.activity.id"
-    }
+	final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
+	    private enum StorageKeys {
+	        static let activeSession = "trip.active.session"
+	        static let historySessions = "trip.history.sessions"
+	        static let journeyPlanItems = "trip.journey.plan"
+	        static let journeyPlanDeleted = "trip.journey.plan.deleted"
+	        static let liveActivityID = "trip.live.activity.id"
+	    }
 
     private let locationService: LocationService
     private let etaEstimator: ETAEstimator
@@ -61,10 +62,11 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
 
     private static let liveActivityStartQueue = DispatchQueue(label: "trip.monitoring.liveactivity.start")
 
-    private let sessionSubject = CurrentValueSubject<TripSession?, Never>(nil)
-    private let snapshotSubject = CurrentValueSubject<TravelSnapshot?, Never>(nil)
-    private let historySubject = CurrentValueSubject<[TripHistorySession], Never>([])
-    private let journeyPlanSubject = CurrentValueSubject<[JourneyPlanItem], Never>([])
+	    private let sessionSubject = CurrentValueSubject<TripSession?, Never>(nil)
+	    private let snapshotSubject = CurrentValueSubject<TravelSnapshot?, Never>(nil)
+	    private let historySubject = CurrentValueSubject<[TripHistorySession], Never>([])
+	    private let journeyPlanSubject = CurrentValueSubject<[JourneyPlanItem], Never>([])
+	    private let journeyPlanDeletedSubject = CurrentValueSubject<[JourneyPlanTombstone], Never>([])
 
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -102,14 +104,20 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         self.widgetSyncService = widgetSyncService
         self.defaults = defaults
 
-        bindLocationUpdates()
-        bindAuthorizationUpdates()
-        bindAppLifecycle()
-        loadPersistedHistory()
-        loadPersistedJourneyPlan()
-        cleanupLiveActivitiesIfNoPersistedSession()
-        restoreActiveSessionIfNeeded()
-    }
+	        bindLocationUpdates()
+	        bindAuthorizationUpdates()
+	        bindAppLifecycle()
+	        loadPersistedHistory()
+	        loadPersistedJourneyPlanDeletions()
+	        loadPersistedJourneyPlan()
+	        cleanupLiveActivitiesIfNoPersistedSession()
+	        restoreActiveSessionIfNeeded()
+	    }
+
+	    struct JourneyPlanTombstone: Codable, Equatable {
+	        let id: UUID
+	        let deletedAt: Date
+	    }
 
     func start(session: TripSession) {
         if sessionSubject.value != nil {
@@ -265,11 +273,12 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         persistActiveSession(activeSession)
     }
 
-    func addJourneyPlanItem(_ item: JourneyPlanItem) {
-        var updated = journeyPlanSubject.value
-        updated.removeAll { existing in
-            abs(existing.latitude - item.latitude) < 0.00001 &&
-            abs(existing.longitude - item.longitude) < 0.00001 &&
+	    func addJourneyPlanItem(_ item: JourneyPlanItem) {
+	        clearDeletionIfRevived(itemID: item.id, itemUpdatedAt: item.updatedAt)
+	        var updated = journeyPlanSubject.value
+	        updated.removeAll { existing in
+	            abs(existing.latitude - item.latitude) < 0.00001 &&
+	            abs(existing.longitude - item.longitude) < 0.00001 &&
             abs(existing.plannedStartAt.timeIntervalSince(item.plannedStartAt)) < 60
         }
         updated.append(item)
@@ -290,11 +299,12 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         saveJourneyPlanItems(updated)
     }
 
-    func replaceJourneyPlanItems(_ items: [JourneyPlanItem]) {
-        let sortedItems = items.sorted { lhs, rhs in
-            if lhs.plannedStartAt == rhs.plannedStartAt {
-                return lhs.createdAt < rhs.createdAt
-            }
+	    func replaceJourneyPlanItems(_ items: [JourneyPlanItem]) {
+	        recordDeletions(from: journeyPlanSubject.value, to: items, deletedAt: .now)
+	        let sortedItems = items.sorted { lhs, rhs in
+	            if lhs.plannedStartAt == rhs.plannedStartAt {
+	                return lhs.createdAt < rhs.createdAt
+	            }
             return lhs.plannedStartAt < rhs.plannedStartAt
         }
         saveJourneyPlanItems(sortedItems)
@@ -1365,23 +1375,35 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         historySubject.send(persisted.map { $0.domain })
     }
 
-    private func loadPersistedJourneyPlan() {
-        guard let defaults,
-              let data = defaults.data(forKey: StorageKeys.journeyPlanItems),
-              let persisted = try? decoder.decode([JourneyPlanItem].self, from: data) else {
-            journeyPlanSubject.send([])
-            return
-        }
+	    private func loadPersistedJourneyPlan() {
+	        guard let defaults,
+	              let data = defaults.data(forKey: StorageKeys.journeyPlanItems),
+	              let persisted = try? decoder.decode([JourneyPlanItem].self, from: data) else {
+	            journeyPlanSubject.send([])
+	            return
+	        }
 
-        journeyPlanSubject.send(
-            persisted.sorted { lhs, rhs in
-                if lhs.plannedStartAt == rhs.plannedStartAt {
-                    return lhs.createdAt < rhs.createdAt
-                }
-                return lhs.plannedStartAt < rhs.plannedStartAt
-            }
-        )
-    }
+	        let filtered = applyDeletions(to: persisted, deletions: journeyPlanDeletedSubject.value)
+
+	        journeyPlanSubject.send(
+	            filtered.sorted { lhs, rhs in
+	                if lhs.plannedStartAt == rhs.plannedStartAt {
+	                    return lhs.createdAt < rhs.createdAt
+	                }
+	                return lhs.plannedStartAt < rhs.plannedStartAt
+	            }
+	        )
+	    }
+
+	    private func loadPersistedJourneyPlanDeletions() {
+	        guard let defaults,
+	              let data = defaults.data(forKey: StorageKeys.journeyPlanDeleted),
+	              let persisted = try? decoder.decode([JourneyPlanTombstone].self, from: data) else {
+	            journeyPlanDeletedSubject.send([])
+	            return
+	        }
+	        journeyPlanDeletedSubject.send(pruneJourneyPlanDeletions(persisted))
+	    }
 
     private func persistHistory(_ sessions: [TripHistorySession]) {
         guard let defaults else { return }
@@ -1434,36 +1456,70 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         historySubject.value
     }
 
-    func mergeJourneyPlanFromICloud(_ remoteItems: [JourneyPlanItem]) {
-        guard !remoteItems.isEmpty else { return }
+	    func mergeJourneyPlanFromICloud(
+	        _ remoteItems: [JourneyPlanItem],
+	        deleted remoteDeleted: [ICloudJourneyPlanSyncPayload.JourneyPlanTombstone] = []
+	    ) {
+	        guard !remoteItems.isEmpty || !remoteDeleted.isEmpty else { return }
 
-        let local = journeyPlanSubject.value
-        let localByID = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+	        let local = journeyPlanSubject.value
+	        let localByID = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
 
-        var mergedByID: [UUID: JourneyPlanItem] = localByID
-        for remote in remoteItems {
-            if let existing = mergedByID[remote.id] {
-                mergedByID[remote.id] = remote.updatedAt > existing.updatedAt ? remote : existing
-            } else {
-                mergedByID[remote.id] = remote
-            }
-        }
+	        var tombstonesByID = Dictionary(uniqueKeysWithValues: journeyPlanDeletedSubject.value.map { ($0.id, $0) })
+	        for remote in remoteDeleted {
+	            let tombstone = JourneyPlanTombstone(id: remote.id, deletedAt: remote.deletedAt)
+	            if let existing = tombstonesByID[tombstone.id] {
+	                tombstonesByID[tombstone.id] = tombstone.deletedAt > existing.deletedAt ? tombstone : existing
+	            } else {
+	                tombstonesByID[tombstone.id] = tombstone
+	            }
+	        }
 
-        let merged = mergedByID.values
-            .sorted { lhs, rhs in
-                if lhs.plannedStartAt == rhs.plannedStartAt {
-                    return lhs.createdAt < rhs.createdAt
+	        var mergedByID: [UUID: JourneyPlanItem] = localByID
+	        for remote in remoteItems {
+	            if let existing = mergedByID[remote.id] {
+	                mergedByID[remote.id] = remote.updatedAt > existing.updatedAt ? remote : existing
+	            } else {
+	                mergedByID[remote.id] = remote
+	            }
+	        }
+
+	        let deletions = pruneJourneyPlanDeletions(Array(tombstonesByID.values))
+	        let deletedAtByID = Dictionary(uniqueKeysWithValues: deletions.map { ($0.id, $0.deletedAt) })
+	        mergedByID = mergedByID.filter { id, item in
+	            guard let deletedAt = deletedAtByID[id] else { return true }
+	            return item.updatedAt > deletedAt
+	        }
+
+	        let survivingIDs = Set(mergedByID.keys)
+	        let cleanedTombstones = deletions.filter { tombstone in
+	            guard survivingIDs.contains(tombstone.id) else { return true }
+	            guard let item = mergedByID[tombstone.id] else { return true }
+	            return tombstone.deletedAt >= item.updatedAt
+	        }
+
+	        journeyPlanDeletedSubject.send(cleanedTombstones)
+	        persistJourneyPlanDeletions(cleanedTombstones)
+
+	        let merged = mergedByID.values
+	            .sorted { lhs, rhs in
+	                if lhs.plannedStartAt == rhs.plannedStartAt {
+	                    return lhs.createdAt < rhs.createdAt
                 }
                 return lhs.plannedStartAt < rhs.plannedStartAt
             }
 
-        let limited = merged.count > 500 ? Array(merged.prefix(500)) : merged
-        saveJourneyPlanItems(limited)
-    }
+	        let limited = merged.count > 500 ? Array(merged.prefix(500)) : merged
+	        saveJourneyPlanItems(limited)
+	    }
 
-    func currentJourneyPlanItemsForSync() -> [JourneyPlanItem] {
-        journeyPlanSubject.value
-    }
+	    func currentJourneyPlanItemsForSync() -> [JourneyPlanItem] {
+	        journeyPlanSubject.value
+	    }
+
+	    func currentJourneyPlanTombstonesForSync() -> [JourneyPlanTombstone] {
+	        journeyPlanDeletedSubject.value
+	    }
 
     func updateHistorySessionGPXPath(id: UUID, path: String) {
         guard !path.isEmpty else { return }
@@ -1493,18 +1549,72 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         persistHistory(updated)
     }
 
-    private func persistJourneyPlan(_ items: [JourneyPlanItem]) {
-        guard let defaults else { return }
-        guard let data = try? encoder.encode(items) else { return }
-        defaults.set(data, forKey: StorageKeys.journeyPlanItems)
-    }
+	    private func persistJourneyPlan(_ items: [JourneyPlanItem]) {
+	        guard let defaults else { return }
+	        guard let data = try? encoder.encode(items) else { return }
+	        defaults.set(data, forKey: StorageKeys.journeyPlanItems)
+	    }
 
-    private func saveJourneyPlanItems(_ items: [JourneyPlanItem]) {
-        journeyPlanSubject.send(items)
-        syncActiveSessionIfNeeded(with: items)
-        persistJourneyPlan(items)
-        widgetSyncService.syncJourneyPlan(items)
-    }
+	    private func persistJourneyPlanDeletions(_ tombstones: [JourneyPlanTombstone]) {
+	        guard let defaults else { return }
+	        guard let data = try? encoder.encode(tombstones) else { return }
+	        defaults.set(data, forKey: StorageKeys.journeyPlanDeleted)
+	    }
+
+	    private func saveJourneyPlanItems(_ items: [JourneyPlanItem]) {
+	        let filtered = applyDeletions(to: items, deletions: journeyPlanDeletedSubject.value)
+	        journeyPlanSubject.send(filtered)
+	        syncActiveSessionIfNeeded(with: filtered)
+	        persistJourneyPlan(filtered)
+	        widgetSyncService.syncJourneyPlan(filtered)
+	    }
+
+	    private func applyDeletions(to items: [JourneyPlanItem], deletions: [JourneyPlanTombstone]) -> [JourneyPlanItem] {
+	        guard !deletions.isEmpty else { return items }
+	        let deletedByID = Dictionary(uniqueKeysWithValues: deletions.map { ($0.id, $0.deletedAt) })
+	        return items.filter { item in
+	            guard let deletedAt = deletedByID[item.id] else { return true }
+	            return item.updatedAt > deletedAt
+	        }
+	    }
+
+	    private func recordDeletions(from old: [JourneyPlanItem], to new: [JourneyPlanItem], deletedAt: Date) {
+	        let newIDs = Set(new.map(\.id))
+	        let removed = old.filter { !newIDs.contains($0.id) }.map(\.id)
+	        guard !removed.isEmpty else { return }
+
+	        var tombstonesByID = Dictionary(uniqueKeysWithValues: journeyPlanDeletedSubject.value.map { ($0.id, $0) })
+	        for id in removed {
+	            let tombstone = JourneyPlanTombstone(id: id, deletedAt: deletedAt)
+	            if let existing = tombstonesByID[id] {
+	                if tombstone.deletedAt > existing.deletedAt {
+	                    tombstonesByID[id] = tombstone
+	                }
+	            } else {
+	                tombstonesByID[id] = tombstone
+	            }
+	        }
+
+	        let pruned = pruneJourneyPlanDeletions(Array(tombstonesByID.values))
+	        journeyPlanDeletedSubject.send(pruned)
+	        persistJourneyPlanDeletions(pruned)
+	    }
+
+	    private func clearDeletionIfRevived(itemID: UUID, itemUpdatedAt: Date) {
+	        var tombstones = journeyPlanDeletedSubject.value
+	        guard let index = tombstones.firstIndex(where: { $0.id == itemID }) else { return }
+	        guard itemUpdatedAt > tombstones[index].deletedAt else { return }
+	        tombstones.remove(at: index)
+	        journeyPlanDeletedSubject.send(tombstones)
+	        persistJourneyPlanDeletions(tombstones)
+	    }
+
+	    private func pruneJourneyPlanDeletions(_ tombstones: [JourneyPlanTombstone]) -> [JourneyPlanTombstone] {
+	        let cutoff = Date().addingTimeInterval(-180 * 24 * 60 * 60) // 180 days
+	        let recent = tombstones.filter { $0.deletedAt >= cutoff }
+	        let sorted = recent.sorted { $0.deletedAt > $1.deletedAt }
+	        return sorted.count > 500 ? Array(sorted.prefix(500)) : sorted
+	    }
 
     private func syncActiveSessionIfNeeded(with items: [JourneyPlanItem]) {
         guard let activeSession = sessionSubject.value,

@@ -4,6 +4,7 @@ struct ICloudJourneyPlanSyncPayload: Codable {
     let schemaVersion: Int
     let exportedAt: Date
     let items: [ICloudJourneyPlanItem]
+    let deleted: [JourneyPlanTombstone]?
 
     struct ICloudJourneyPlanItem: Codable {
         let id: UUID
@@ -22,6 +23,11 @@ struct ICloudJourneyPlanSyncPayload: Codable {
         let status: JourneyPlanStatus
         let createdAt: Date
         let updatedAt: Date
+    }
+
+    struct JourneyPlanTombstone: Codable, Equatable {
+        let id: UUID
+        let deletedAt: Date
     }
 }
 
@@ -66,4 +72,3 @@ extension ICloudJourneyPlanSyncPayload.ICloudJourneyPlanItem {
         )
     }
 }
-

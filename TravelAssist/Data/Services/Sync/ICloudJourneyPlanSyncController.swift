@@ -87,10 +87,14 @@ final class ICloudJourneyPlanSyncController {
         guard isEnabled, isAvailable else { return }
         guard !isApplyingRemoteUpdate else { return }
 
+        let deletions = repository.currentJourneyPlanTombstonesForSync()
         let payload = ICloudJourneyPlanSyncPayload(
-            schemaVersion: 1,
+            schemaVersion: 2,
             exportedAt: .now,
-            items: Array(items.prefix(maxSyncedItems)).map(ICloudJourneyPlanSyncPayload.ICloudJourneyPlanItem.init)
+            items: Array(items.prefix(maxSyncedItems)).map(ICloudJourneyPlanSyncPayload.ICloudJourneyPlanItem.init),
+            deleted: deletions.isEmpty
+                ? nil
+                : deletions.map { .init(id: $0.id, deletedAt: $0.deletedAt) }
         )
 
         guard let data = try? encoder.encode(payload) else { return }
@@ -142,17 +146,18 @@ final class ICloudJourneyPlanSyncController {
             guard let data = try? Data(contentsOf: coordinatedURL) else { return }
             guard let payload = try? decoder.decode(ICloudJourneyPlanSyncPayload.self, from: data) else { return }
             let items = payload.items.map(\.domain)
-            mergeRemoteItems(items)
+            let deleted = payload.deleted ?? []
+            mergeRemoteItems(items, deleted: deleted)
         }
     }
 
-    private func mergeRemoteItems(_ remote: [JourneyPlanItem]) {
-        guard !remote.isEmpty else { return }
+    private func mergeRemoteItems(_ remote: [JourneyPlanItem], deleted: [ICloudJourneyPlanSyncPayload.JourneyPlanTombstone]) {
+        guard !remote.isEmpty || !deleted.isEmpty else { return }
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.isApplyingRemoteUpdate = true
-            self.repository.mergeJourneyPlanFromICloud(remote)
+            self.repository.mergeJourneyPlanFromICloud(remote, deleted: deleted)
             self.isApplyingRemoteUpdate = false
         }
     }
@@ -186,4 +191,3 @@ private final class JourneyPlanFilePresenter: NSObject, NSFilePresenter {
         onChange()
     }
 }
-
