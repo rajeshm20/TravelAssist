@@ -1200,36 +1200,54 @@ private enum JourneyPlanTimeBucket: CaseIterable {
     }
 }
 
-@MainActor
-private final class FakeCallSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
-    private let synthesizer = AVSpeechSynthesizer()
-    private var completion: (() -> Void)?
+	@MainActor
+	private final class FakeCallSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+	    private let synthesizer = AVSpeechSynthesizer()
+	    private var completion: (() -> Void)?
 
-    override init() {
-        super.init()
-        synthesizer.delegate = self
-    }
+	    override init() {
+	        super.init()
+	        synthesizer.delegate = self
+	    }
 
-    func speak(_ text: String, completion: @escaping () -> Void) {
-        self.completion = completion
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        utterance.rate = 0.48
-        synthesizer.stopSpeaking(at: .immediate)
-        synthesizer.speak(utterance)
-    }
+	    func speak(_ text: String, completion: @escaping () -> Void) {
+	        self.completion = completion
+
+	        // Ensure voice prompt is audible even if the device is in silent mode.
+	        do {
+	            let session = AVAudioSession.sharedInstance()
+	            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+	            try session.setActive(true, options: [])
+	        } catch {
+	            // Best-effort: fall back to default audio session behavior.
+	        }
+
+	        let utterance = AVSpeechUtterance(string: text)
+	        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+	        utterance.rate = 0.48
+	        utterance.volume = 1.0
+	        synthesizer.stopSpeaking(at: .immediate)
+	        synthesizer.speak(utterance)
+	    }
 
     func stop() {
         completion = nil
         synthesizer.stopSpeaking(at: .immediate)
     }
 
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        let finished = completion
-        completion = nil
-        finished?()
-    }
-}
+	    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+	        let finished = completion
+	        completion = nil
+	        finished?()
+
+	        // Best-effort: release the session so we don't permanently duck other audio.
+	        do {
+	            try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+	        } catch {
+	            // Ignore.
+	        }
+	    }
+	}
 
 private struct FakeIncomingCallView: View {
     let callerName: String
