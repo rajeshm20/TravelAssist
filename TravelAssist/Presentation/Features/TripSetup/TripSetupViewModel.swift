@@ -276,7 +276,8 @@ final class TripSetupViewModel: ObservableObject {
             selectedJourneyMode: selectedJourneyMode,
             leadTimeMinutes: leadTimeMinutes,
             status: itemToEdit?.status ?? .started,
-            createdAt: itemToEdit?.createdAt ?? .now
+            createdAt: itemToEdit?.createdAt ?? .now,
+            updatedAt: itemToEdit == nil ? nil : .now
         )
 
         var updatedItems = existingItems.filter { $0.id != replacement.id }
@@ -456,7 +457,8 @@ final class TripSetupViewModel: ObservableObject {
                 selectedJourneyMode: item.selectedJourneyMode,
                 leadTimeMinutes: item.leadTimeMinutes,
                 status: item.status,
-                createdAt: item.createdAt
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt
             )
             recalculatedByID[item.id] = recalculated
             previousEndAt = recalculated.approximateEndAt

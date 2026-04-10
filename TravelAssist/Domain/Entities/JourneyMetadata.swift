@@ -136,6 +136,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
     let leadTimeMinutes: Int
     let status: JourneyPlanStatus
     let createdAt: Date
+    let updatedAt: Date
 
     init(
         id: UUID = UUID(),
@@ -152,7 +153,8 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
         selectedJourneyMode: JourneyMode,
         leadTimeMinutes: Int,
         status: JourneyPlanStatus = .started,
-        createdAt: Date = .now
+        createdAt: Date = .now,
+        updatedAt: Date? = nil
     ) {
         let resolvedDuration = max(estimatedTravelDurationSeconds, 0)
         self.id = id
@@ -170,6 +172,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
         self.leadTimeMinutes = leadTimeMinutes
         self.status = status
         self.createdAt = createdAt
+        self.updatedAt = updatedAt ?? createdAt
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -188,6 +191,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
         case leadTimeMinutes
         case status
         case createdAt
+        case updatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -210,6 +214,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
         let approximateEndAt = try container.decodeIfPresent(Date.self, forKey: .approximateEndAt)
         let status = try container.decodeIfPresent(JourneyPlanStatus.self, forKey: .status) ?? .started
         let createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? plannedStartAt
+        let updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
 
         self.init(
             id: id,
@@ -226,7 +231,8 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
             selectedJourneyMode: selectedJourneyMode,
             leadTimeMinutes: leadTimeMinutes,
             status: status,
-            createdAt: createdAt
+            createdAt: createdAt,
+            updatedAt: updatedAt
         )
     }
 
@@ -247,5 +253,6 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
         try container.encode(leadTimeMinutes, forKey: .leadTimeMinutes)
         try container.encode(status, forKey: .status)
         try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
     }
 }

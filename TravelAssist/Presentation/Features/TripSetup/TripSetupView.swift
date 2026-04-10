@@ -1103,6 +1103,7 @@ Weather is unavailable because WeatherKit is not enabled for this build.
 
 private struct SettingsSheet: View {
     @Binding var isICloudHistorySyncEnabled: Bool
+    @AppStorage(AppConstants.settingICloudJourneyPlanSyncEnabledKey) private var isICloudJourneyPlanSyncEnabled = false
     @AppStorage(AppConstants.settingICloudGPXSyncEnabledKey) private var isICloudGPXSyncEnabled = false
     @Environment(\.dismiss) private var dismiss
 
@@ -1118,6 +1119,16 @@ private struct SettingsSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Sync Session History to iCloud")
                             Text("Keeps your trip history in sync across devices.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(!isICloudAvailable)
+
+                    Toggle(isOn: $isICloudJourneyPlanSyncEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Sync Journey Plan to iCloud")
+                            Text("Keeps your planned trips (past and future dates) in sync across devices.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

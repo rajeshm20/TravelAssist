@@ -1434,6 +1434,37 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
         historySubject.value
     }
 
+    func mergeJourneyPlanFromICloud(_ remoteItems: [JourneyPlanItem]) {
+        guard !remoteItems.isEmpty else { return }
+
+        let local = journeyPlanSubject.value
+        let localByID = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+
+        var mergedByID: [UUID: JourneyPlanItem] = localByID
+        for remote in remoteItems {
+            if let existing = mergedByID[remote.id] {
+                mergedByID[remote.id] = remote.updatedAt > existing.updatedAt ? remote : existing
+            } else {
+                mergedByID[remote.id] = remote
+            }
+        }
+
+        let merged = mergedByID.values
+            .sorted { lhs, rhs in
+                if lhs.plannedStartAt == rhs.plannedStartAt {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.plannedStartAt < rhs.plannedStartAt
+            }
+
+        let limited = merged.count > 500 ? Array(merged.prefix(500)) : merged
+        saveJourneyPlanItems(limited)
+    }
+
+    func currentJourneyPlanItemsForSync() -> [JourneyPlanItem] {
+        journeyPlanSubject.value
+    }
+
     func updateHistorySessionGPXPath(id: UUID, path: String) {
         guard !path.isEmpty else { return }
         var updated = historySubject.value
@@ -1549,7 +1580,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 selectedJourneyMode: item.selectedJourneyMode,
                 leadTimeMinutes: item.leadTimeMinutes,
                 status: status,
-                createdAt: item.createdAt
+                createdAt: item.createdAt,
+                updatedAt: .now
             )
         }
         saveJourneyPlanItems(updated)
@@ -1576,7 +1608,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 selectedJourneyMode: item.selectedJourneyMode,
                 leadTimeMinutes: item.leadTimeMinutes,
                 status: .inProgress,
-                createdAt: item.createdAt
+                createdAt: item.createdAt,
+                updatedAt: .now
             )
         }
 
@@ -1640,7 +1673,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 selectedJourneyMode: item.selectedJourneyMode,
                 leadTimeMinutes: item.leadTimeMinutes,
                 status: item.status,
-                createdAt: item.createdAt
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt
             )
             recalculatedByID[item.id] = recalculated
             previousEndAt = recalculated.approximateEndAt
@@ -1718,7 +1752,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 selectedJourneyMode: referenceItem.selectedJourneyMode,
                 leadTimeMinutes: referenceItem.leadTimeMinutes,
                 status: .completed,
-                createdAt: referenceItem.createdAt
+                createdAt: referenceItem.createdAt,
+                updatedAt: .now
             )
         case .cancelledByUser, .locationTurnedOffBeforeDestination:
             updatedItem = JourneyPlanItem(
@@ -1735,7 +1770,8 @@ final class TripMonitoringRepositoryImpl: TripMonitoringRepository {
                 selectedJourneyMode: referenceItem.selectedJourneyMode,
                 leadTimeMinutes: referenceItem.leadTimeMinutes,
                 status: .started,
-                createdAt: referenceItem.createdAt
+                createdAt: referenceItem.createdAt,
+                updatedAt: .now
             )
         }
 
