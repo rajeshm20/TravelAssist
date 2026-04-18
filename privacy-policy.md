@@ -1,8 +1,8 @@
-# Privacy Policy for TravelAssist
+# Privacy Policy for TravellerX
 
 **Effective Date:** April 18, 2026
 
-Thank you for using **TravelAssist**. Your privacy is important to us. This Privacy Policy explains how we handle your information when you use our mobile application.
+Thank you for using **TravellerX**. Your privacy is important to us. This Privacy Policy explains how we handle your information when you use our mobile application.
 
 ---
 
@@ -10,7 +10,7 @@ Thank you for using **TravelAssist**. Your privacy is important to us. This Priv
 
 ### a. Location Data
 
-TravelAssist may access your device’s location to provide core features such as:
+TravellerX may access your device’s location to provide core features such as:
 
 * Route planning and navigation
 * Destination tracking and alerts
@@ -22,7 +22,7 @@ Your location data is used only while using the app and is **not stored on our s
 
 ### b. User Content (GPX Files)
 
-TravelAssist allows you to import, create, and manage GPX (GPS Exchange Format) files.
+TravellerX allows you to import, create, and manage GPX (GPS Exchange Format) files.
 
 * These files are stored **locally on your device** or in your personal iCloud storage (if enabled).
 * We do **not access, upload, or share your GPX data externally**.
@@ -63,7 +63,7 @@ Your data remains:
 
 ## 4. Third-Party Services
 
-TravelAssist uses Apple-provided frameworks such as:
+TravellerX uses Apple-provided frameworks such as:
 
 * Apple MapKit (for maps and navigation)
 * Apple iCloud (optional, for file synchronization)
@@ -83,7 +83,7 @@ We prioritize your data security:
 
 ## 6. Children’s Privacy
 
-TravelAssist does not knowingly collect personal information from children under the age of 13.
+TravellerX does not knowingly collect personal information from children under the age of 13.
 
 ---
 
@@ -111,5 +111,5 @@ If you have any questions or concerns about this Privacy Policy, you can contact
 
 ---
 
-By using TravelAssist, you agree to this Privacy Policy.
+By using TravellerX, you agree to this Privacy Policy.
 
