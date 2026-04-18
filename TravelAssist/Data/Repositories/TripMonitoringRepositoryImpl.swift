@@ -40,6 +40,7 @@ import UIKit
     private var estimateTask: Task<Void, Never>?
     private var hasTriggeredFakeCall = false
     private var hasTriggeredArrivalFakeCall = false
+    private var hasTriggeredDestinationDirectionFakeCall = false
     private var hasReachedDestination = false
     private var hasScheduledProgressNotifications = false
     private var progressNotificationSessionID: UUID?
@@ -129,6 +130,7 @@ import UIKit
 
         hasTriggeredFakeCall = false
         hasTriggeredArrivalFakeCall = false
+        hasTriggeredDestinationDirectionFakeCall = false
         hasReachedDestination = false
         hasScheduledProgressNotifications = false
         progressNotificationSessionID = resolvedSession.id
@@ -209,6 +211,10 @@ import UIKit
         updateBackgroundHeartbeat()
 
         if let currentLocation = locationService.currentLocation {
+            triggerDestinationDirectionFakeCallIfNeeded(
+                currentLocation: currentLocation,
+                destinationCoordinate: resolvedSession.destinationCoordinate
+            )
             scheduleEstimate(for: currentLocation)
         }
     }
@@ -336,12 +342,128 @@ import UIKit
             .sink { [weak self] location in
                 guard let self else { return }
                 if self.sessionSubject.value != nil {
+                    if let destinationCoordinate = self.sessionSubject.value?.destinationCoordinate {
+                        self.triggerDestinationDirectionFakeCallIfNeeded(
+                            currentLocation: location,
+                            destinationCoordinate: destinationCoordinate
+                        )
+                    }
                     self.scheduleEstimate(for: location)
                 } else {
                     self.handlePendingNextTripAutoStartMovement(location: location)
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func triggerDestinationDirectionFakeCallIfNeeded(
+        currentLocation: CLLocation,
+        destinationCoordinate: CLLocationCoordinate2D
+    ) {
+        guard runState == .active else { return }
+        guard !hasTriggeredDestinationDirectionFakeCall else { return }
+
+        let message = destinationDirectionPrompt(
+            currentLocation: currentLocation,
+            destinationCoordinate: destinationCoordinate
+        )
+        guard let message, !message.isEmpty else { return }
+
+        hasTriggeredDestinationDirectionFakeCall = true
+        alertService.scheduleFakeCall(in: 2, message: message)
+    }
+
+    private func destinationDirectionPrompt(
+        currentLocation: CLLocation,
+        destinationCoordinate: CLLocationCoordinate2D
+    ) -> String? {
+        let originCoordinate = currentLocation.coordinate
+        let distanceMeters = CLLocation(
+            latitude: destinationCoordinate.latitude,
+            longitude: destinationCoordinate.longitude
+        ).distance(from: currentLocation)
+
+        if distanceMeters < 25 {
+            return "Your destination is very close to your current location."
+        }
+
+        let bearing = bearingDegrees(from: originCoordinate, to: destinationCoordinate)
+        let compass = compassDirection(for: bearing)
+        let relative = relativeDirectionPhrase(courseDegrees: currentLocation.course, bearingDegrees: bearing)
+
+        if let relative {
+            return "Your destination is \(relative), towards the \(compass)."
+        }
+
+        return "Your destination is to the \(compass) of your current location."
+    }
+
+    private func relativeDirectionPhrase(courseDegrees: CLLocationDirection, bearingDegrees: Double) -> String? {
+        guard courseDegrees.isFinite, courseDegrees >= 0 else { return nil }
+
+        let delta = normalizedSignedDegrees(bearingDegrees - courseDegrees)
+        let absDelta = abs(delta)
+
+        if absDelta <= 25 {
+            return "ahead"
+        }
+        if absDelta >= 155 {
+            return "behind you"
+        }
+        if delta > 0 {
+            return "to your right"
+        }
+        return "to your left"
+    }
+
+    private func bearingDegrees(from origin: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D) -> Double {
+        let lat1 = degreesToRadians(origin.latitude)
+        let lon1 = degreesToRadians(origin.longitude)
+        let lat2 = degreesToRadians(destination.latitude)
+        let lon2 = degreesToRadians(destination.longitude)
+
+        let dLon = lon2 - lon1
+        let y = sin(dLon) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+        let radians = atan2(y, x)
+        let degrees = radiansToDegrees(radians)
+        return normalizedUnsignedDegrees(degrees)
+    }
+
+    private func compassDirection(for bearingDegrees: Double) -> String {
+        let normalized = normalizedUnsignedDegrees(bearingDegrees)
+        let directions = [
+            "north",
+            "north-east",
+            "east",
+            "south-east",
+            "south",
+            "south-west",
+            "west",
+            "north-west"
+        ]
+        let index = Int((normalized + 22.5) / 45.0) % directions.count
+        return directions[index]
+    }
+
+    private func normalizedUnsignedDegrees(_ degrees: Double) -> Double {
+        var result = degrees.truncatingRemainder(dividingBy: 360)
+        if result < 0 { result += 360 }
+        return result
+    }
+
+    private func normalizedSignedDegrees(_ degrees: Double) -> Double {
+        var result = normalizedUnsignedDegrees(degrees)
+        if result > 180 { result -= 360 }
+        return result
+    }
+
+    private func degreesToRadians(_ degrees: Double) -> Double {
+        degrees * .pi / 180.0
+    }
+
+    private func radiansToDegrees(_ radians: Double) -> Double {
+        radians * 180.0 / .pi
     }
 
     private func bindAuthorizationUpdates() {
