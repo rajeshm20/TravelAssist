@@ -1834,6 +1834,7 @@ private struct JourneyPlanEditorSheet: View {
     @State private var estimatedTravelDurationSeconds: TimeInterval
     @State private var selectedJourneyMode: JourneyMode
     @State private var leadTimeMinutes: Int
+    @State private var isRoundTripToCurrentLocationEnabled: Bool
 
     init(
         viewModel: TripSetupViewModel,
@@ -1885,6 +1886,7 @@ private struct JourneyPlanEditorSheet: View {
         _leadTimeMinutes = State(
             initialValue: editingItem?.leadTimeMinutes ?? ((viewModel.selectedLeadHours * 60) + viewModel.selectedLeadMinutes)
         )
+        _isRoundTripToCurrentLocationEnabled = State(initialValue: false)
         _destinationDraft = State(
             initialValue: editingItem.map {
                 DestinationDraft(
@@ -1911,129 +1913,34 @@ private struct JourneyPlanEditorSheet: View {
                     .frame(height: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button {
+                    DateTimeCard(
+                        dateText: Self.dateFormatter.string(from: plannedStartAt),
+                        timeText: Self.timeFormatter.string(from: plannedStartAt),
+                        isExpanded: isDateTimeExpanded,
+                        onToggleExpanded: {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 isDateTimeExpanded.toggle()
                             }
-                        } label: {
-                            HStack(spacing: 12) {
-                                Label("Travel Date & Time", systemImage: "calendar.badge.clock")
-                                    .font(.headline.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text(Self.dateFormatter.string(from: plannedStartAt))
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(.primary)
-                                    Text(Self.timeFormatter.string(from: plannedStartAt))
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                Image(systemName: isDateTimeExpanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
-                                    .font(.title3)
-                                    .foregroundStyle(Color(red: 0.19, green: 0.45, blue: 0.93))
-                            }
-                        }
-                        .buttonStyle(.plain)
+                        },
+                        dateBinding: dateBinding,
+                        startTimeBinding: startTimeBinding,
+                        dateSelectionRange: dateSelectionRange,
+                        timeSelectionRange: timeSelectionRange
+                    )
 
-                        if isDateTimeExpanded {
-                            DatePicker(
-                                "Travel Date",
-                                selection: dateBinding,
-                                in: dateSelectionRange,
-                                displayedComponents: .date
-                            )
-                            .datePickerStyle(.wheel)
-                            .environment(\.locale, Locale(identifier: "en_GB"))
-                            .labelsHidden()
+                    PlannerControlsRow(
+                        selectedJourneyMode: $selectedJourneyMode,
+                        leadTimeMinutes: $leadTimeMinutes
+                    )
 
-                            DatePicker(
-                                "Start Time",
-                                selection: startTimeBinding,
-                                in: timeSelectionRange,
-                                displayedComponents: .hourAndMinute
-                            )
-                            .datePickerStyle(.wheel)
-                            .environment(\.locale, Locale(identifier: "en_GB"))
-                            .labelsHidden()
-                        }
-                    }
-                    .padding(14)
-                    .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    destinationSection
 
-                    HStack(spacing: 12) {
-                        plannerControlCard(
-                            title: "Journey Mode",
-                            systemImage: selectedJourneyMode.symbolName,
-                            onPrevious: { cycleJourneyMode(by: -1) },
-                            onNext: { cycleJourneyMode(by: 1) }
-                        ) {
-                            Image(systemName: selectedJourneyMode.symbolName)
-                                .font(.title2.weight(.semibold))
-                                .foregroundStyle(.primary)
-                                .frame(width: 44, height: 34)
-                        }
-
-                        plannerControlCard(
-                            title: "Lead Time",
-                            systemImage: "clock.badge.checkmark",
-                            onPrevious: { adjustLeadTime(by: -5) },
-                            onNext: { adjustLeadTime(by: 5) }
-                        ) {
-                            Text(leadTimeText)
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.85)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Label("Destination", systemImage: "mappin.and.ellipse")
-                                .font(.headline.weight(.semibold))
-                            Spacer()
-                            Button(destinationDraft == nil ? "Choose" : "Change") {
-                                isDestinationPickerPresented = true
-                            }
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(Color(red: 0.91, green: 0.93, blue: 0.98), in: Capsule())
-                        }
-
-                        if let destinationDraft {
-                            Text(destinationDraft.title)
-                                .font(.body.weight(.semibold))
-                            if let subtitle = destinationDraft.subtitle, !subtitle.isEmpty {
-                                Text(subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else {
-                            Text("Choose a destination from the map search to calculate the trip.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if let routeStatusMessage = routePreviewViewModel.routeStatusMessage {
-                            Text(routeStatusMessage)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Trip Timing")
-                            .font(.headline.weight(.semibold))
-                        timingRow(title: "Start", value: Self.timeFormatter.string(from: plannedStartAt))
-                        timingRow(title: "Approx. End", value: approximateEndTimeText)
-                        timingIconRow(title: "Journey Mode", systemImage: selectedJourneyMode.symbolName)
-                        timingRow(title: "Lead Time", value: leadTimeText)
-                    }
-                    .padding(14)
-                    .background(Color(red: 0.99, green: 0.94, blue: 0.90), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    TripTimingCard(
+                        startText: Self.timeFormatter.string(from: plannedStartAt),
+                        approximateEndText: approximateEndTimeText,
+                        journeyModeSymbolName: selectedJourneyMode.symbolName,
+                        leadTimeText: leadTimeText
+                    )
                 }
                 .padding()
             }
@@ -2049,7 +1956,7 @@ private struct JourneyPlanEditorSheet: View {
                     Button(editingItem == nil ? "Add" : "Save") {
                         saveJourneyPlan()
                     }
-                    .disabled(destinationDraft == nil)
+                    .disabled(isSaveDisabled)
                 }
             }
             .sheet(isPresented: $isDestinationPickerPresented) {
@@ -2058,26 +1965,33 @@ private struct JourneyPlanEditorSheet: View {
                     if let estimatedTravelTime = destination.estimatedTravelTime {
                         estimatedTravelDurationSeconds = estimatedTravelTime
                     }
-                    routePreviewViewModel.updateDestination(coordinate: destination.coordinate)
+                    updateRoutePreview()
                 }
             }
             .onAppear {
                 routePreviewViewModel.onAppear()
                 plannedStartAt = clampedPlannedStartAt(plannedStartAt)
-                routePreviewViewModel.updateTransportType(for: selectedJourneyMode)
-                routePreviewViewModel.updateOriginOverride(coordinate: originOverrideForPlannedStartAt(plannedStartAt))
-                if let destinationDraft {
-                    routePreviewViewModel.updateDestination(coordinate: destinationDraft.coordinate)
-                }
+                updateRoutePreview()
             }
             .onDisappear {
                 routePreviewViewModel.onDisappear()
             }
             .onChange(of: plannedStartAt) { _, newValue in
-                routePreviewViewModel.updateOriginOverride(coordinate: originOverrideForPlannedStartAt(newValue))
+                if isRoundTripToCurrentLocationEnabled, editingItem == nil {
+                    updateRoutePreview()
+                } else {
+                    routePreviewViewModel.updateOriginOverride(coordinate: originOverrideForPlannedStartAt(newValue))
+                }
             }
             .onChange(of: selectedJourneyMode) { _, newValue in
-                routePreviewViewModel.updateTransportType(for: newValue)
+                if isRoundTripToCurrentLocationEnabled, editingItem == nil {
+                    updateRoutePreview()
+                } else {
+                    routePreviewViewModel.updateTransportType(for: newValue)
+                }
+            }
+            .onChange(of: isRoundTripToCurrentLocationEnabled) { _, _ in
+                updateRoutePreview()
             }
         }
         .presentationDetents([.large])
@@ -2156,18 +2070,43 @@ private struct JourneyPlanEditorSheet: View {
 
     private func saveJourneyPlan() {
         guard let destinationDraft else { return }
-        viewModel.saveJourneyPlanItem(
-            existingItems: existingItems,
-            editing: editingItem,
-            title: destinationDraft.title,
-            subtitle: destinationDraft.subtitle,
-            coordinate: destinationDraft.coordinate,
-            plannedStartAt: plannedStartAt,
-            estimatedTravelDurationSeconds: resolvedTravelDurationSeconds,
-            selectedJourneyMode: selectedJourneyMode,
-            leadTimeMinutes: leadTimeMinutes
-        )
+        if editingItem == nil,
+           isRoundTripToCurrentLocationEnabled,
+           let currentCoordinate = routePreviewViewModel.currentCoordinate {
+            viewModel.saveRoundTripJourneyPlanItems(
+                existingItems: existingItems,
+                outboundTitle: destinationDraft.title,
+                outboundSubtitle: destinationDraft.subtitle,
+                outboundCoordinate: destinationDraft.coordinate,
+                returnCoordinate: currentCoordinate,
+                plannedStartAt: plannedStartAt,
+                estimatedTravelDurationSeconds: resolvedTravelDurationSeconds,
+                selectedJourneyMode: selectedJourneyMode,
+                leadTimeMinutes: leadTimeMinutes
+            )
+        } else {
+            viewModel.saveJourneyPlanItem(
+                existingItems: existingItems,
+                editing: editingItem,
+                title: destinationDraft.title,
+                subtitle: destinationDraft.subtitle,
+                coordinate: destinationDraft.coordinate,
+                plannedStartAt: plannedStartAt,
+                estimatedTravelDurationSeconds: resolvedTravelDurationSeconds,
+                selectedJourneyMode: selectedJourneyMode,
+                leadTimeMinutes: leadTimeMinutes
+            )
+        }
         dismiss()
+    }
+
+    private var isSaveDisabled: Bool {
+        guard destinationDraft != nil else { return true }
+        if editingItem != nil { return false }
+        if isRoundTripToCurrentLocationEnabled {
+            return routePreviewViewModel.currentCoordinate == nil
+        }
+        return false
     }
 
     private var clampedCurrentTime: Date {
@@ -2227,45 +2166,345 @@ private struct JourneyPlanEditorSheet: View {
     }
 
     @ViewBuilder
-    private func plannerControlCard(
-        title: String,
-        systemImage: String,
-        onPrevious: @escaping () -> Void,
-        onNext: @escaping () -> Void,
-        @ViewBuilder valueContent: () -> some View
-    ) -> some View {
+    private var destinationSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: systemImage)
+            HStack {
+                Label("Destination", systemImage: "mappin.and.ellipse")
+                    .font(.headline.weight(.semibold))
+                Spacer()
+                Button(destinationDraft == nil ? "Choose" : "Change") {
+                    isDestinationPickerPresented = true
+                }
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(Color(red: 0.91, green: 0.93, blue: 0.98), in: Capsule())
+            }
 
-            HStack(spacing: 10) {
-                Button(action: onPrevious) {
-                    Image(systemName: "chevron.left")
-                        .font(.subheadline.weight(.bold))
-                        .frame(width: 30, height: 30)
-                        .background(Color.white.opacity(0.9), in: Circle())
+            if editingItem == nil {
+                Toggle(isOn: $isRoundTripToCurrentLocationEnabled) {
+                    Label("Round trip back to current location", systemImage: "arrow.uturn.backward.circle")
+                        .font(.subheadline.weight(.semibold))
                 }
-                .buttonStyle(.plain)
+                .tint(Color(red: 0.19, green: 0.45, blue: 0.93))
 
-                Spacer(minLength: 0)
-
-                valueContent()
-
-                Spacer(minLength: 0)
-
-                Button(action: onNext) {
-                    Image(systemName: "chevron.right")
-                        .font(.subheadline.weight(.bold))
-                        .frame(width: 30, height: 30)
-                        .background(Color.white.opacity(0.9), in: Circle())
+                if isRoundTripToCurrentLocationEnabled {
+                    Text(roundTripHelperText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
+            }
+
+            if let destinationDraft {
+                Text(destinationDraft.title)
+                    .font(.body.weight(.semibold))
+                if let subtitle = destinationDraft.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("Choose a destination from the map search to calculate the trip.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let routeStatusMessage = routePreviewViewModel.routeStatusMessage {
+                Text(routeStatusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var roundTripHelperText: String {
+        routePreviewViewModel.currentCoordinate == nil
+        ? "Waiting for current location to add the return stop."
+        : "A return stop to your current location will be added automatically."
+    }
+
+    private func updateRoutePreview() {
+        routePreviewViewModel.updateTransportType(for: selectedJourneyMode)
+
+        if editingItem == nil,
+           isRoundTripToCurrentLocationEnabled,
+           let destinationDraft,
+           let currentCoordinate = routePreviewViewModel.currentCoordinate {
+            routePreviewViewModel.previewJourneyPlanItems(
+                roundTripPreviewItems(
+                    destination: destinationDraft.coordinate,
+                    destinationTitle: destinationDraft.title,
+                    destinationSubtitle: destinationDraft.subtitle,
+                    returnCoordinate: currentCoordinate
+                )
+            )
+            return
+        }
+
+        routePreviewViewModel.updateOriginOverride(coordinate: originOverrideForPlannedStartAt(plannedStartAt))
+        if let destinationDraft {
+            routePreviewViewModel.updateDestination(coordinate: destinationDraft.coordinate)
+        }
+    }
+
+    private func roundTripPreviewItems(
+        destination: CLLocationCoordinate2D,
+        destinationTitle: String,
+        destinationSubtitle: String?,
+        returnCoordinate: CLLocationCoordinate2D
+    ) -> [JourneyPlanDisplayItem] {
+        let createdAt = Date()
+        let outboundDuration = resolvedTravelDurationSeconds
+        let outbound = JourneyPlanItem(
+            title: destinationTitle,
+            subtitle: destinationSubtitle,
+            startLatitude: nil,
+            startLongitude: nil,
+            latitude: destination.latitude,
+            longitude: destination.longitude,
+            userPlannedStartAt: plannedStartAt,
+            plannedStartAt: plannedStartAt,
+            estimatedTravelDurationSeconds: outboundDuration,
+            selectedJourneyMode: selectedJourneyMode,
+            leadTimeMinutes: leadTimeMinutes,
+            status: .started,
+            createdAt: createdAt
+        )
+
+        let returnItem = JourneyPlanItem(
+            title: "Current Location",
+            subtitle: "Return trip",
+            startLatitude: nil,
+            startLongitude: nil,
+            latitude: returnCoordinate.latitude,
+            longitude: returnCoordinate.longitude,
+            userPlannedStartAt: plannedStartAt,
+            plannedStartAt: plannedStartAt.addingTimeInterval(outboundDuration),
+            estimatedTravelDurationSeconds: outboundDuration,
+            selectedJourneyMode: selectedJourneyMode,
+            leadTimeMinutes: leadTimeMinutes,
+            status: .started,
+            createdAt: createdAt.addingTimeInterval(1)
+        )
+
+        let outboundDisplay = JourneyPlanDisplayItem(
+            id: outbound.id,
+            displayStartAt: outbound.plannedStartAt,
+            displayEndAt: outbound.approximateEndAt,
+            dayIndex: 1,
+            item: outbound
+        )
+        let returnDisplay = JourneyPlanDisplayItem(
+            id: returnItem.id,
+            displayStartAt: returnItem.plannedStartAt,
+            displayEndAt: returnItem.approximateEndAt,
+            dayIndex: 1,
+            item: returnItem
+        )
+
+        return [outboundDisplay, returnDisplay]
+    }
+
+    private struct DateTimeCard: View {
+        let dateText: String
+        let timeText: String
+        let isExpanded: Bool
+        let onToggleExpanded: () -> Void
+        let dateBinding: Binding<Date>
+        let startTimeBinding: Binding<Date>
+        let dateSelectionRange: ClosedRange<Date>
+        let timeSelectionRange: ClosedRange<Date>
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    onToggleExpanded()
+                } label: {
+                    HStack(spacing: 12) {
+                        Label("Travel Date & Time", systemImage: "calendar.badge.clock")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(dateText)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text(timeText)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        Image(systemName: isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(Color(red: 0.19, green: 0.45, blue: 0.93))
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if isExpanded {
+                    DatePicker(
+                        "Travel Date",
+                        selection: dateBinding,
+                        in: dateSelectionRange,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.wheel)
+                    .environment(\.locale, Locale(identifier: "en_GB"))
+                    .labelsHidden()
+
+                    DatePicker(
+                        "Start Time",
+                        selection: startTimeBinding,
+                        in: timeSelectionRange,
+                        displayedComponents: .hourAndMinute
+                    )
+                    .datePickerStyle(.wheel)
+                    .environment(\.locale, Locale(identifier: "en_GB"))
+                    .labelsHidden()
+                }
+            }
+            .padding(14)
+            .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
+
+    private struct PlannerControlsRow: View {
+        @Binding var selectedJourneyMode: JourneyMode
+        @Binding var leadTimeMinutes: Int
+
+        var body: some View {
+            HStack(spacing: 12) {
+                PlannerControlCard(
+                    title: "Journey Mode",
+                    systemImage: selectedJourneyMode.symbolName,
+                    onPrevious: { cycleJourneyMode(by: -1) },
+                    onNext: { cycleJourneyMode(by: 1) }
+                ) {
+                    Image(systemName: selectedJourneyMode.symbolName)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 44, height: 34)
+                }
+
+                PlannerControlCard(
+                    title: "Lead Time",
+                    systemImage: "clock.badge.checkmark",
+                    onPrevious: { adjustLeadTime(by: -5) },
+                    onNext: { adjustLeadTime(by: 5) }
+                ) {
+                    Text(leadTimeText)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+            }
+        }
+
+        private var leadTimeText: String {
+            String(format: "%02d:%02d", leadTimeMinutes / 60, leadTimeMinutes % 60)
+        }
+
+        private func cycleJourneyMode(by delta: Int) {
+            let allModes = JourneyMode.allCases
+            guard let currentIndex = allModes.firstIndex(of: selectedJourneyMode) else { return }
+            let nextIndex = (currentIndex + delta + allModes.count) % allModes.count
+            selectedJourneyMode = allModes[nextIndex]
+        }
+
+        private func adjustLeadTime(by deltaMinutes: Int) {
+            let minimum = 5
+            let maximum = (23 * 60) + 55
+            leadTimeMinutes = min(max(leadTimeMinutes + deltaMinutes, minimum), maximum)
+        }
+    }
+
+    private struct PlannerControlCard<ValueContent: View>: View {
+        let title: String
+        let systemImage: String
+        let onPrevious: () -> Void
+        let onNext: () -> Void
+        @ViewBuilder let valueContent: () -> ValueContent
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(title, systemImage: systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    Button(action: onPrevious) {
+                        Image(systemName: "chevron.left")
+                            .font(.subheadline.weight(.bold))
+                            .frame(width: 30, height: 30)
+                            .background(Color.white.opacity(0.9), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer(minLength: 0)
+
+                    valueContent()
+
+                    Spacer(minLength: 0)
+
+                    Button(action: onNext) {
+                        Image(systemName: "chevron.right")
+                            .font(.subheadline.weight(.bold))
+                            .frame(width: 30, height: 30)
+                            .background(Color.white.opacity(0.9), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
+
+    private struct TripTimingCard: View {
+        let startText: String
+        let approximateEndText: String
+        let journeyModeSymbolName: String
+        let leadTimeText: String
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Trip Timing")
+                    .font(.headline.weight(.semibold))
+                timingRow(title: "Start", value: startText)
+                timingRow(title: "Approx. End", value: approximateEndText)
+                timingIconRow(title: "Journey Mode", systemImage: journeyModeSymbolName)
+                timingRow(title: "Lead Time", value: leadTimeText)
+            }
+            .padding(14)
+            .background(Color(red: 0.99, green: 0.94, blue: 0.90), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+
+        @ViewBuilder
+        private func timingRow(title: String, value: String) -> some View {
+            HStack {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(value)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.primary)
+            }
+        }
+
+        @ViewBuilder
+        private func timingIconRow(title: String, systemImage: String) -> some View {
+            HStack {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: systemImage)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.primary)
+            }
+        }
     }
 
     @ViewBuilder

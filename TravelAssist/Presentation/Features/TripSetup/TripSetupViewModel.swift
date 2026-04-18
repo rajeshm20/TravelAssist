@@ -298,6 +298,72 @@ final class TripSetupViewModel: ObservableObject {
         )
     }
 
+    func saveRoundTripJourneyPlanItems(
+        existingItems: [JourneyPlanItem],
+        outboundTitle: String,
+        outboundSubtitle: String?,
+        outboundCoordinate: CLLocationCoordinate2D,
+        returnCoordinate: CLLocationCoordinate2D,
+        plannedStartAt: Date,
+        estimatedTravelDurationSeconds: TimeInterval,
+        selectedJourneyMode: JourneyMode,
+        leadTimeMinutes: Int
+    ) {
+        let resolvedDuration = resolvedEstimatedTravelDuration(
+            estimatedTravelDurationSeconds,
+            minimumLeadTimeMinutes: leadTimeMinutes
+        )
+
+        let createdAt = Date()
+        let outbound = JourneyPlanItem(
+            title: outboundTitle,
+            subtitle: outboundSubtitle,
+            startLatitude: nil,
+            startLongitude: nil,
+            latitude: outboundCoordinate.latitude,
+            longitude: outboundCoordinate.longitude,
+            userPlannedStartAt: plannedStartAt,
+            plannedStartAt: plannedStartAt,
+            estimatedTravelDurationSeconds: resolvedDuration,
+            selectedJourneyMode: selectedJourneyMode,
+            leadTimeMinutes: leadTimeMinutes,
+            status: .started,
+            createdAt: createdAt
+        )
+
+        let returnItem = JourneyPlanItem(
+            title: "Current Location",
+            subtitle: "Return trip",
+            startLatitude: nil,
+            startLongitude: nil,
+            latitude: returnCoordinate.latitude,
+            longitude: returnCoordinate.longitude,
+            userPlannedStartAt: plannedStartAt,
+            plannedStartAt: plannedStartAt,
+            estimatedTravelDurationSeconds: resolvedDuration,
+            selectedJourneyMode: selectedJourneyMode,
+            leadTimeMinutes: leadTimeMinutes,
+            status: .started,
+            createdAt: createdAt.addingTimeInterval(1)
+        )
+
+        var updatedItems = existingItems
+        updatedItems.append(outbound)
+        updatedItems.append(returnItem)
+        updatedItems = recomputeJourneyPlanSchedules(
+            affectedDates: [plannedStartAt],
+            items: updatedItems
+        )
+
+        replaceJourneyPlanItemsUseCase.execute(items: updatedItems)
+        plannedStartDate = plannedStartAt
+        persistCurrentSetup()
+        errorMessage = nil
+        recordTripUserActionUseCase.execute(
+            status: "Round trip journey planned for \(outboundTitle)"
+        )
+    }
+
     func deleteJourneyPlanItem(existingItems: [JourneyPlanItem], itemID: UUID) {
         guard let removedItem = existingItems.first(where: { $0.id == itemID }) else { return }
         var updatedItems = existingItems.filter { $0.id != itemID }

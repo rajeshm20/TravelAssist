@@ -2,6 +2,7 @@ import Foundation
 
 @MainActor
 final class AppContainer {
+    private let locationService: LocationService
     private let backgroundTaskScheduler: BackgroundTaskScheduler
     private let tripMonitoringRepository: TripMonitoringRepository
     private let iCloudHistorySyncController: ICloudHistorySyncController
@@ -21,6 +22,7 @@ final class AppContainer {
 
     init() {
         let locationService = CoreLocationService()
+        self.locationService = locationService
         let etaEstimator = MapKitETAEstimator()
         let alertService = LocalFakeCallAlertService()
         let progressNotificationService = LocalTripProgressNotificationService()
@@ -83,5 +85,9 @@ final class AppContainer {
             observeUseCase: observeUseCase,
             stopUseCase: stopUseCase
         )
+    }
+
+    func makeSplashViewModel() -> TravelSplashViewModel {
+        TravelSplashViewModel(locationService: locationService)
     }
 }

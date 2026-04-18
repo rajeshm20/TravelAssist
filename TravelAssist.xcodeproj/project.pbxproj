@@ -39,6 +39,16 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		61CBBE3D2F8B797F0087300E /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		61D0CE1A2F5E788E001C3CB7 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -178,6 +188,7 @@
 				61B9B7F22F5DE7CF00BEB79F /* Frameworks */,
 				61B9B7F32F5DE7CF00BEB79F /* Resources */,
 				61D0CE1A2F5E788E001C3CB7 /* Embed Foundation Extensions */,
+				61CBBE3D2F8B797F0087300E /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -188,8 +199,6 @@
 				61B9B7F72F5DE7CF00BEB79F /* TravelAssist */,
 			);
 			name = TravelAssist;
-			packageProductDependencies = (
-			);
 			productName = TravelAssist;
 			productReference = 61B9B7F52F5DE7CF00BEB79F /* TravelAssist.app */;
 			productType = "com.apple.product-type.application";
@@ -211,8 +220,6 @@
 				61B9B8052F5DE7D000BEB79F /* TravelAssistTests */,
 			);
 			name = TravelAssistTests;
-			packageProductDependencies = (
-			);
 			productName = TravelAssistTests;
 			productReference = 61B9B8022F5DE7D000BEB79F /* TravelAssistTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -234,8 +241,6 @@
 				61B9B80F2F5DE7D000BEB79F /* TravelAssistUITests */,
 			);
 			name = TravelAssistUITests;
-			packageProductDependencies = (
-			);
 			productName = TravelAssistUITests;
 			productReference = 61B9B80C2F5DE7D000BEB79F /* TravelAssistUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -256,8 +261,6 @@
 				61D0CE052F5E788D001C3CB7 /* TravelAssistWidget */,
 			);
 			name = TravelAssistWidgetExtension;
-			packageProductDependencies = (
-			);
 			productName = TravelAssistWidgetExtension;
 			productReference = 61D0CDFF2F5E788C001C3CB7 /* TravelAssistWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -270,7 +273,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2630;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					61B9B7F42F5DE7CF00BEB79F = {
 						CreatedOnToolsVersion = 26.3;
@@ -297,6 +300,8 @@
 			);
 			mainGroup = 61B9B7EC2F5DE7CF00BEB79F;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 61B9B7F62F5DE7CF00BEB79F /* Products */;
 			projectDirPath = "";
@@ -452,6 +457,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -509,6 +515,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -528,6 +535,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = TravelAssistInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = TravelAssistant;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.travel";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -560,6 +568,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = TravelAssistInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = TravelAssistant;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.travel";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
