@@ -112,17 +112,28 @@ struct TravelSplashView: View {
 
             // ✈️ Foreground Content
             VStack(spacing: 20) {
-
+                
                 AnimatedTransportIcon()
+                    .shadow(color: .red, radius: 4, x: 1, y: 0.8)
+                    .padding(.top, 20)
 
-                Text("TravelAssist")
-                    .font(.system(size: 32, weight: .bold))
+                Text("TravelerX")
+                    .font(.system(size: 42, weight: .bold))
                     .foregroundColor(.white)
+                    .shadow(color: .red, radius: 4, x: 1, y: 0.8)
 
                 Text("Your journey begins here")
-                    .font(.system(size: 14))
+                    .font(.system(size: 20))
                     .foregroundColor(.white.opacity(0.8))
+                    .shadow(color: .red, radius: 4, x: 1, y: 0.8)
             }
+            .frame(width: 260, height: 240, alignment: .init(horizontal: .center, vertical: .top))
+            .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color.white.opacity(0.3))
+            )
+            .shadow(color: .orange, radius: 4, x: 1, y: 0.8)
+
         }
         .onAppear {
             viewModel.start()
