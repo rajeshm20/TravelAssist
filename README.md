@@ -8,7 +8,7 @@
 
 This is a production-oriented starter architecture for your app idea:
 
-- TestFlight link - https://testflight.apple.com/join/BhB9SpRW
+- Public TestFlight link - https://testflight.apple.com/join/BhB9SpRW
 - User sets destination + lead time (5/10/20/30/custom minutes)
 - App tracks live location in foreground/background
 - ETA is recalculated from location updates

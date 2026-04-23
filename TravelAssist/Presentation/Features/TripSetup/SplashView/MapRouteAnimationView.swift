@@ -58,3 +58,8 @@ struct MapRouteAnimationView: View {
         }
     }
 }
+
+
+#Preview {
+    MapRouteAnimationView()
+}

@@ -25,3 +25,7 @@ struct MovingDot: View {
         }
     }
 }
+
+#Preview {
+        MovingDot(progress: 0.6)
+}

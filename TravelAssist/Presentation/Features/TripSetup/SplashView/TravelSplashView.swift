@@ -34,7 +34,7 @@ struct TravelSplashView: View {
                 Map(position: $viewModel.cameraPosition, interactionModes: []) { }
                 .ignoresSafeArea()
                 .opacity(0.4)
-                .blendMode(.overlay)
+                .blendMode(.colorDodge)
                 .saturation(1.2)
                 .contrast(1.1)
                 .overlay {
@@ -77,7 +77,7 @@ struct TravelSplashView: View {
                             control2: CGPoint(x: geo.size.width * 0.3, y: 0)
                         )
                     }
-                    .stroke(Color.white.opacity(0.08), lineWidth: 8)
+                    .stroke(Color.white.opacity(0.2), lineWidth: 8)
                     .offset(x: offsetX * 0.2, y: offsetY * 0.2)
 
                     // Layer 2 (mid)
@@ -89,7 +89,7 @@ struct TravelSplashView: View {
                             control2: CGPoint(x: geo.size.width * 0.7, y: 0)
                         )
                     }
-                    .stroke(Color.white.opacity(0.12), lineWidth: 6)
+                    .stroke(Color.white.opacity(0.2), lineWidth: 6)
                     .offset(x: offsetX * 0.4, y: offsetY * 0.4)
 
                     // Layer 3 (near - main route)
