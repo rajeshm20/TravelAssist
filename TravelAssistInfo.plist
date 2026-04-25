@@ -46,13 +46,9 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Used to track your journey and update the map to update your current location with alert before destination.</string>
+	<string>Used (optionally) to keep monitoring an active trip in the background so we can estimate ETA and alert you when you are within your lead time.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Used to track your journey and update the map to update your current location with alert before destination.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Used to listen for a quick voice confirmation to auto start the next trip.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Used to recognize your yes/no voice response for auto starting the next trip.</string>
+	<string>Used to show route previews from your current location and to monitor an active trip while the app is open.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

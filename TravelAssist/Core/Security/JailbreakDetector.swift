@@ -2,6 +2,11 @@ import Foundation
 
 enum JailbreakDetector {
     static func isJailbroken(fileManager: FileManager = .default) -> Bool {
+        #if DEBUG
+        
+        return false // skip jailbreak detection
+        
+        #endif
         #if targetEnvironment(simulator)
         return false
         #else

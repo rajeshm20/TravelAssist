@@ -9,28 +9,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        registerNotificationCategories()
         return true
-    }
-
-    private func registerNotificationCategories() {
-        let start = UNNotificationAction(
-            identifier: AppConstants.fakeCallDecisionActionStartID,
-            title: "Start Next Trip",
-            options: [.foreground]
-        )
-        let skip = UNNotificationAction(
-            identifier: AppConstants.fakeCallDecisionActionSkipID,
-            title: "Skip",
-            options: [.destructive]
-        )
-        let category = UNNotificationCategory(
-            identifier: AppConstants.fakeCallDecisionCategoryID,
-            actions: [start, skip],
-            intentIdentifiers: [],
-            options: []
-        )
-        UNUserNotificationCenter.current().setNotificationCategories([category])
     }
 
     func userNotificationCenter(
@@ -51,9 +30,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) {
         if response.notification.request.identifier == AppConstants.fakeCallNotificationID {
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-        }
-        if response.notification.request.identifier == AppConstants.fakeCallDecisionNotificationID {
-            FakeCallDecisionCenter.shared.handleNotificationAction(response.actionIdentifier)
         }
         completionHandler()
     }
