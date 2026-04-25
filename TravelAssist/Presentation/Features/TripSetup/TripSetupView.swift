@@ -1105,7 +1105,9 @@ private struct SettingsSheet: View {
     @Binding var isICloudHistorySyncEnabled: Bool
     @AppStorage(AppConstants.settingICloudJourneyPlanSyncEnabledKey) private var isICloudJourneyPlanSyncEnabled = false
     @AppStorage(AppConstants.settingICloudGPXSyncEnabledKey) private var isICloudGPXSyncEnabled = false
+    @AppStorage(AppConstants.settingBackgroundMonitoringEnabledKey) private var isBackgroundMonitoringEnabled = false
     @Environment(\.dismiss) private var dismiss
+    @State private var isDeleteConfirmPresented = false
 
     private var isICloudAvailable: Bool {
         FileManager.default.url(forUbiquityContainerIdentifier: nil) != nil
@@ -1151,12 +1153,40 @@ private struct SettingsSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                Section("Privacy") {
+                    Toggle(isOn: $isBackgroundMonitoringEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Background trip monitoring")
+                            Text("When enabled, the app may request “Always” location permission so it can keep monitoring during an active trip even when the app is in the background.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Text("Location is used only for route previews and active trip monitoring. Monitoring stops when you end a trip.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Button("Delete All Data", role: .destructive) {
+                        isDeleteConfirmPresented = true
+                    }
+                }
             }
             .navigationTitle("Settings")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .alert("Delete All Data?", isPresented: $isDeleteConfirmPresented) {
+                Button("Delete", role: .destructive) {
+                    AppDataDeletion.deleteAllData()
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes your journey plan, session history, and any locally stored GPX tracks from this device.")
             }
         }
     }
@@ -2079,6 +2109,7 @@ private struct JourneyPlanEditorSheet: View {
                 outboundSubtitle: destinationDraft.subtitle,
                 outboundCoordinate: destinationDraft.coordinate,
                 returnCoordinate: currentCoordinate,
+                returnTitle: routePreviewViewModel.currentLocationName ?? "Current Location",
                 plannedStartAt: plannedStartAt,
                 estimatedTravelDurationSeconds: resolvedTravelDurationSeconds,
                 selectedJourneyMode: selectedJourneyMode,
@@ -2235,7 +2266,8 @@ private struct JourneyPlanEditorSheet: View {
                     destination: destinationDraft.coordinate,
                     destinationTitle: destinationDraft.title,
                     destinationSubtitle: destinationDraft.subtitle,
-                    returnCoordinate: currentCoordinate
+                    returnCoordinate: currentCoordinate,
+                    returnTitle: routePreviewViewModel.currentLocationName ?? "Current Location"
                 )
             )
             return
@@ -2251,7 +2283,8 @@ private struct JourneyPlanEditorSheet: View {
         destination: CLLocationCoordinate2D,
         destinationTitle: String,
         destinationSubtitle: String?,
-        returnCoordinate: CLLocationCoordinate2D
+        returnCoordinate: CLLocationCoordinate2D,
+        returnTitle: String
     ) -> [JourneyPlanDisplayItem] {
         let createdAt = Date()
         let outboundDuration = resolvedTravelDurationSeconds
@@ -2272,7 +2305,7 @@ private struct JourneyPlanEditorSheet: View {
         )
 
         let returnItem = JourneyPlanItem(
-            title: "Current Location",
+            title: returnTitle,
             subtitle: "Return trip",
             startLatitude: nil,
             startLongitude: nil,
@@ -3678,6 +3711,8 @@ private struct RoutePreviewUIKitMap: UIViewRepresentable {
 @MainActor
 private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var currentCoordinate: CLLocationCoordinate2D?
+    @Published var currentLocationName: String?
+    @Published var currentLocationSubtitle: String?
     @Published var destinationCoordinate: CLLocationCoordinate2D?
     @Published var originOverrideCoordinate: CLLocationCoordinate2D?
     @Published var route: MKRoute?
@@ -3693,6 +3728,10 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
     private var activeDirections: MKDirections?
     private var multiDirections: [MKDirections] = []
     private var lastAcceptedLocation: CLLocation?
+    private var lastGeocodedLocation: CLLocation?
+    private var lastGeocodeAt: Date?
+    private let geocoder = CLGeocoder()
+    private var geocodeTask: Task<Void, Never>?
     private var activeRouteRequestID: UUID?
     private var lastLocationRequestAt: Date?
     private var multiRouteTask: Task<Void, Never>?
@@ -3969,6 +4008,7 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
 
         lastAcceptedLocation = location
         currentCoordinate = location.coordinate
+        updateCurrentLocationLabelIfNeeded(location: location)
         if manager.accuracyAuthorization != .reducedAccuracy {
             routeStatusMessage = nil
         }
@@ -3995,6 +4035,44 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
             }
         }
         routeStatusMessage = "Could not read current location for route preview."
+    }
+
+    private func updateCurrentLocationLabelIfNeeded(location: CLLocation) {
+        let now = Date()
+        if let lastLocation = lastGeocodedLocation,
+           let lastGeocodeAt,
+           now.timeIntervalSince(lastGeocodeAt) < 60,
+           location.distance(from: lastLocation) < 80 {
+            return
+        }
+
+        lastGeocodedLocation = location
+        lastGeocodeAt = now
+        geocodeTask?.cancel()
+        geocodeTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let placemarks = try await self.geocoder.reverseGeocodeLocation(location)
+                guard let placemark = placemarks.first else { return }
+                let title = placemark.name
+                    ?? placemark.locality
+                    ?? placemark.administrativeArea
+                    ?? "Current Location"
+                let subtitleParts = [
+                    placemark.locality,
+                    placemark.administrativeArea,
+                    placemark.country
+                ].compactMap { $0 }.filter { !$0.isEmpty }
+                let subtitle = subtitleParts.isEmpty ? nil : subtitleParts.joined(separator: ", ")
+
+                await MainActor.run {
+                    self.currentLocationName = title
+                    self.currentLocationSubtitle = subtitle
+                }
+            } catch {
+                // Best-effort: keep previous label.
+            }
+        }
     }
 
     private func requestCurrentLocationIfNeeded(force: Bool = false) {

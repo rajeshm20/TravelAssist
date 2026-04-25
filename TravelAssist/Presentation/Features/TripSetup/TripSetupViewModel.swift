@@ -264,6 +264,7 @@ final class TripSetupViewModel: ObservableObject {
         )
         let replacement = JourneyPlanItem(
             id: itemToEdit?.id ?? UUID(),
+            roundTripGroupID: itemToEdit?.roundTripGroupID,
             title: title,
             subtitle: subtitle,
             startLatitude: itemToEdit?.startLatitude,
@@ -304,6 +305,7 @@ final class TripSetupViewModel: ObservableObject {
         outboundSubtitle: String?,
         outboundCoordinate: CLLocationCoordinate2D,
         returnCoordinate: CLLocationCoordinate2D,
+        returnTitle: String,
         plannedStartAt: Date,
         estimatedTravelDurationSeconds: TimeInterval,
         selectedJourneyMode: JourneyMode,
@@ -315,7 +317,12 @@ final class TripSetupViewModel: ObservableObject {
         )
 
         let createdAt = Date()
+        let roundTripGroupID = UUID()
+        let resolvedReturnTitle = returnTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Current Location"
+            : returnTitle
         let outbound = JourneyPlanItem(
+            roundTripGroupID: roundTripGroupID,
             title: outboundTitle,
             subtitle: outboundSubtitle,
             startLatitude: nil,
@@ -332,7 +339,8 @@ final class TripSetupViewModel: ObservableObject {
         )
 
         let returnItem = JourneyPlanItem(
-            title: "Current Location",
+            roundTripGroupID: roundTripGroupID,
+            title: resolvedReturnTitle,
             subtitle: "Return trip",
             startLatitude: nil,
             startLongitude: nil,
@@ -366,7 +374,27 @@ final class TripSetupViewModel: ObservableObject {
 
     func deleteJourneyPlanItem(existingItems: [JourneyPlanItem], itemID: UUID) {
         guard let removedItem = existingItems.first(where: { $0.id == itemID }) else { return }
-        var updatedItems = existingItems.filter { $0.id != itemID }
+        var updatedItems: [JourneyPlanItem]
+        if let roundTripGroupID = removedItem.roundTripGroupID {
+            updatedItems = existingItems.filter { $0.roundTripGroupID != roundTripGroupID }
+        } else {
+            let legacyPairID = existingItems
+                .filter { $0.id != removedItem.id }
+                .filter { Calendar.current.isDate($0.userPlannedStartAt, inSameDayAs: removedItem.userPlannedStartAt) }
+                .filter { abs($0.createdAt.timeIntervalSince(removedItem.createdAt)) <= 2 }
+                .first(where: { item in
+                    let eitherIsReturn = removedItem.subtitle == "Return trip" || item.subtitle == "Return trip"
+                    let onlyOneReturn = (removedItem.subtitle == "Return trip") != (item.subtitle == "Return trip")
+                    return eitherIsReturn && onlyOneReturn
+                })?
+                .id
+
+            if let legacyPairID {
+                updatedItems = existingItems.filter { $0.id != removedItem.id && $0.id != legacyPairID }
+            } else {
+                updatedItems = existingItems.filter { $0.id != itemID }
+            }
+        }
         updatedItems = recomputeJourneyPlanSchedules(
             affectedDates: [removedItem.userPlannedStartAt],
             items: updatedItems

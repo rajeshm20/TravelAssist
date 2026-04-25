@@ -20,14 +20,15 @@ import UIKit
     private let backgroundTaskScheduler: BackgroundTaskScheduler
     private let widgetSyncService: WidgetSyncService
     private let defaults: UserDefaults?
+    private let gpxFileStore = GPXLocalFileStore()
 
     private let stationaryFreezeDistanceMeters: CLLocationDistance = 12
     private let maximumStationaryJitterMeters: CLLocationDistance = 35
     private let minimumArrivalClampMeters: CLLocationDistance = 20
     private let maximumArrivalClampMeters: CLLocationDistance = 45
-    private let routePointMinimumDistanceMeters: CLLocationDistance = 5
-    private let routePointMinimumIntervalSeconds: TimeInterval = 10
-    private let intervalCheckSeconds: TimeInterval = 5 * 60
+    private let routePointMinimumDistanceMeters: CLLocationDistance = 12
+    private let routePointMinimumIntervalSeconds: TimeInterval = 20
+    private let intervalCheckSeconds: TimeInterval = 10 * 60
     private let idleTimeoutSeconds: TimeInterval = 10 * 60
     private let maxActivityEventsPerSession = 4000
     private let liveActivityMinimumUpdateIntervalSeconds: TimeInterval = 60
@@ -36,16 +37,11 @@ import UIKit
 
     private var cancellables = Set<AnyCancellable>()
     private var intervalCancellable: AnyCancellable?
-    private var backgroundHeartbeatCancellable: AnyCancellable?
     private var estimateTask: Task<Void, Never>?
     private var hasTriggeredFakeCall = false
-    private var hasTriggeredArrivalFakeCall = false
-    private var hasTriggeredDestinationDirectionFakeCall = false
     private var hasReachedDestination = false
     private var hasScheduledProgressNotifications = false
     private var progressNotificationSessionID: UUID?
-    private var pendingNextTripAutoStart: PendingNextTripAutoStart?
-    private var pendingNextTripExpiryWorkItem: DispatchWorkItem?
     private var liveActivity: Activity<TravelAssistWidgetAttributes>?
     private var currentRoutePoints: [PersistedTrackPoint] = []
     private var currentActivityEvents: [TripActivityEvent] = []
@@ -58,8 +54,6 @@ import UIKit
     private var lastLiveActivityUpdateAt: Date?
     private let activityDetector = JourneyActivityDetector()
     private var isInBackground = false
-    private let backgroundLocationRefreshSeconds: TimeInterval = 5 * 60
-    private let nextTripAutoStartExpirySeconds: TimeInterval = 20 * 60
 
     private static let liveActivityStartQueue = DispatchQueue(label: "trip.monitoring.liveactivity.start")
 
@@ -113,6 +107,13 @@ import UIKit
 	        loadPersistedJourneyPlan()
 	        cleanupLiveActivitiesIfNoPersistedSession()
 	        restoreActiveSessionIfNeeded()
+
+        NotificationCenter.default.publisher(for: .appDataDeleted)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.handleExternalDataDeletion()
+            }
+            .store(in: &cancellables)
 	    }
 
 	    struct JourneyPlanTombstone: Codable, Equatable {
@@ -129,8 +130,6 @@ import UIKit
         let resolvedSession = resolvedSessionForStart(session)
 
         hasTriggeredFakeCall = false
-        hasTriggeredArrivalFakeCall = false
-        hasTriggeredDestinationDirectionFakeCall = false
         hasReachedDestination = false
         hasScheduledProgressNotifications = false
         progressNotificationSessionID = resolvedSession.id
@@ -170,12 +169,17 @@ import UIKit
             longitude: locationService.currentLocation?.coordinate.longitude ?? resolvedSession.startCoordinate.longitude,
             timestamp: resolvedSession.startedAt
         )
-        recordActivityEvent(
-            status: String(
-                format: "Destination set to %.5f, %.5f",
+        let destinationLabel = resolvedSession.journeyPlanItemID
+            .flatMap { journeyPlanItemID in
+                journeyPlanSubject.value.first(where: { $0.id == journeyPlanItemID })?.title
+            }
+            ?? String(
+                format: "%.5f, %.5f",
                 resolvedSession.destinationCoordinate.latitude,
                 resolvedSession.destinationCoordinate.longitude
-            ),
+            )
+        recordActivityEvent(
+            status: "Destination set to \(destinationLabel)",
             latitude: resolvedSession.destinationCoordinate.latitude,
             longitude: resolvedSession.destinationCoordinate.longitude,
             timestamp: resolvedSession.startedAt
@@ -208,13 +212,8 @@ import UIKit
         startLiveActivity(for: resolvedSession)
         startIntervalChecks()
         backgroundTaskScheduler.scheduleRefresh()
-        updateBackgroundHeartbeat()
 
         if let currentLocation = locationService.currentLocation {
-            triggerDestinationDirectionFakeCallIfNeeded(
-                currentLocation: currentLocation,
-                destinationCoordinate: resolvedSession.destinationCoordinate
-            )
             scheduleEstimate(for: currentLocation)
         }
     }
@@ -341,129 +340,10 @@ import UIKit
         locationService.locationPublisher
             .sink { [weak self] location in
                 guard let self else { return }
-                if self.sessionSubject.value != nil {
-                    if let destinationCoordinate = self.sessionSubject.value?.destinationCoordinate {
-                        self.triggerDestinationDirectionFakeCallIfNeeded(
-                            currentLocation: location,
-                            destinationCoordinate: destinationCoordinate
-                        )
-                    }
-                    self.scheduleEstimate(for: location)
-                } else {
-                    self.handlePendingNextTripAutoStartMovement(location: location)
-                }
+                guard self.sessionSubject.value != nil else { return }
+                self.scheduleEstimate(for: location)
             }
             .store(in: &cancellables)
-    }
-
-    private func triggerDestinationDirectionFakeCallIfNeeded(
-        currentLocation: CLLocation,
-        destinationCoordinate: CLLocationCoordinate2D
-    ) {
-        guard runState == .active else { return }
-        guard !hasTriggeredDestinationDirectionFakeCall else { return }
-
-        let message = destinationDirectionPrompt(
-            currentLocation: currentLocation,
-            destinationCoordinate: destinationCoordinate
-        )
-        guard let message, !message.isEmpty else { return }
-
-        hasTriggeredDestinationDirectionFakeCall = true
-        alertService.scheduleFakeCall(in: 2, message: message)
-    }
-
-    private func destinationDirectionPrompt(
-        currentLocation: CLLocation,
-        destinationCoordinate: CLLocationCoordinate2D
-    ) -> String? {
-        let originCoordinate = currentLocation.coordinate
-        let distanceMeters = CLLocation(
-            latitude: destinationCoordinate.latitude,
-            longitude: destinationCoordinate.longitude
-        ).distance(from: currentLocation)
-
-        if distanceMeters < 25 {
-            return "Your destination is very close to your current location."
-        }
-
-        let bearing = bearingDegrees(from: originCoordinate, to: destinationCoordinate)
-        let compass = compassDirection(for: bearing)
-        let relative = relativeDirectionPhrase(courseDegrees: currentLocation.course, bearingDegrees: bearing)
-
-        if let relative {
-            return "Your destination is \(relative), towards the \(compass)."
-        }
-
-        return "Your destination is to the \(compass) of your current location."
-    }
-
-    private func relativeDirectionPhrase(courseDegrees: CLLocationDirection, bearingDegrees: Double) -> String? {
-        guard courseDegrees.isFinite, courseDegrees >= 0 else { return nil }
-
-        let delta = normalizedSignedDegrees(bearingDegrees - courseDegrees)
-        let absDelta = abs(delta)
-
-        if absDelta <= 25 {
-            return "ahead"
-        }
-        if absDelta >= 155 {
-            return "behind you"
-        }
-        if delta > 0 {
-            return "to your right"
-        }
-        return "to your left"
-    }
-
-    private func bearingDegrees(from origin: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D) -> Double {
-        let lat1 = degreesToRadians(origin.latitude)
-        let lon1 = degreesToRadians(origin.longitude)
-        let lat2 = degreesToRadians(destination.latitude)
-        let lon2 = degreesToRadians(destination.longitude)
-
-        let dLon = lon2 - lon1
-        let y = sin(dLon) * cos(lat2)
-        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
-        let radians = atan2(y, x)
-        let degrees = radiansToDegrees(radians)
-        return normalizedUnsignedDegrees(degrees)
-    }
-
-    private func compassDirection(for bearingDegrees: Double) -> String {
-        let normalized = normalizedUnsignedDegrees(bearingDegrees)
-        let directions = [
-            "north",
-            "north-east",
-            "east",
-            "south-east",
-            "south",
-            "south-west",
-            "west",
-            "north-west"
-        ]
-        let index = Int((normalized + 22.5) / 45.0) % directions.count
-        return directions[index]
-    }
-
-    private func normalizedUnsignedDegrees(_ degrees: Double) -> Double {
-        var result = degrees.truncatingRemainder(dividingBy: 360)
-        if result < 0 { result += 360 }
-        return result
-    }
-
-    private func normalizedSignedDegrees(_ degrees: Double) -> Double {
-        var result = normalizedUnsignedDegrees(degrees)
-        if result > 180 { result -= 360 }
-        return result
-    }
-
-    private func degreesToRadians(_ degrees: Double) -> Double {
-        degrees * .pi / 180.0
-    }
-
-    private func radiansToDegrees(_ radians: Double) -> Double {
-        radians * 180.0 / .pi
     }
 
     private func bindAuthorizationUpdates() {
@@ -485,7 +365,10 @@ import UIKit
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.isInBackground = true
-                self.updateBackgroundHeartbeat()
+                if self.sessionSubject.value != nil {
+                    self.locationService.stopStandardUpdates()
+                    self.stopIntervalChecks()
+                }
             }
             .store(in: &cancellables)
 
@@ -493,42 +376,12 @@ import UIKit
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.isInBackground = false
-                self.stopBackgroundHeartbeat()
+                if self.sessionSubject.value != nil, self.runState == .active {
+                    self.locationService.startStandardUpdates()
+                    self.startIntervalChecks()
+                }
             }
             .store(in: &cancellables)
-    }
-
-    private func updateBackgroundHeartbeat() {
-        stopBackgroundHeartbeat()
-        guard isInBackground, sessionSubject.value != nil else { return }
-
-        refreshBackgroundLocation()
-        backgroundHeartbeatCancellable = Timer.publish(
-            every: backgroundLocationRefreshSeconds,
-            on: .main,
-            in: .common
-        )
-        .autoconnect()
-        .sink { [weak self] _ in
-            self?.refreshBackgroundLocation()
-        }
-    }
-
-    private func stopBackgroundHeartbeat() {
-        backgroundHeartbeatCancellable?.cancel()
-        backgroundHeartbeatCancellable = nil
-    }
-
-    private func refreshBackgroundLocation() {
-        guard sessionSubject.value != nil else {
-            stopBackgroundHeartbeat()
-            return
-        }
-
-        locationService.requestOneTimeLocation()
-        if let location = locationService.currentLocation {
-            scheduleEstimate(for: location, forceRouteEstimate: true)
-        }
     }
 
     private func startIntervalChecks() {
@@ -540,9 +393,11 @@ import UIKit
             .sink { [weak self] _ in
                 guard let self, self.sessionSubject.value != nil else { return }
                 guard self.runState == .active else { return }
-                self.locationService.requestOneTimeLocation()
-                if let location = self.locationService.currentLocation {
+                if let location = self.locationService.currentLocation,
+                   abs(location.timestamp.timeIntervalSinceNow) < 180 {
                     self.scheduleEstimate(for: location)
+                } else {
+                    self.locationService.requestOneTimeLocation()
                 }
             }
     }
@@ -669,13 +524,6 @@ import UIKit
         persistActiveSession(session)
 
         if hasReachedDestination {
-            if !hasTriggeredArrivalFakeCall {
-                hasTriggeredArrivalFakeCall = true
-                alertService.scheduleFakeCall(
-                    in: 0,
-                    message: AppConstants.fakeCallNotificationMessage
-                )
-            }
             completeAndStop(status: .destinationReached, finalSnapshot: snapshot)
             return
         }
@@ -686,12 +534,6 @@ import UIKit
             alertService.scheduleFakeCall(
                 in: 1,
                 message: "Your destination is close. ETA is about \(snapshot.etaMinutes) minute(s)."
-            )
-        } else if !hasTriggeredFakeCall && estimate.distanceMeters <= AppConstants.arrivalDistanceThresholdMeters {
-            hasTriggeredFakeCall = true
-            alertService.scheduleFakeCall(
-                in: 1,
-                message: "You are very close to your destination."
             )
         }
     }
@@ -738,9 +580,11 @@ import UIKit
         guard runState != .active else { return }
 
         runState = .active
-        locationService.startStandardUpdates()
-        locationService.requestOneTimeLocation()
-        startIntervalChecks()
+        if !isInBackground {
+            locationService.startStandardUpdates()
+            locationService.requestOneTimeLocation()
+            startIntervalChecks()
+        }
         recordActivityEvent(
             status: "Monitoring resumed",
             latitude: location.coordinate.latitude,
@@ -959,30 +803,18 @@ import UIKit
         Task { [weak self] in
             await self?.endLiveActivity()
         }
-
-        if let nextSession {
-            armPendingNextTripAutoStart(
-                session: nextSession.session,
-                tripTitle: nextSession.tripTitle,
-                endedAt: endedAt,
-                lastLocation: finalSnapshot.flatMap { CLLocation(latitude: $0.currentCoordinate.latitude, longitude: $0.currentCoordinate.longitude) }
-                    ?? locationService.currentLocation
-            )
-        }
     }
 
     private func clearRuntimeState() {
         sessionSubject.send(nil)
         snapshotSubject.send(nil)
         hasTriggeredFakeCall = false
-        hasTriggeredArrivalFakeCall = false
         hasReachedDestination = false
         runState = .active
 
         estimateTask?.cancel()
         estimateTask = nil
         stopIntervalChecks()
-        stopBackgroundHeartbeat()
 
         alertService.cancelPendingFakeCall()
         if let progressNotificationSessionID {
@@ -1001,106 +833,30 @@ import UIKit
         lastLiveActivityUpdateAt = nil
     }
 
-    private func armPendingNextTripAutoStart(
-        session: TripSession,
-        tripTitle: String,
-        endedAt: Date,
-        lastLocation: CLLocation?
-    ) {
-        pendingNextTripExpiryWorkItem?.cancel()
-        pendingNextTripExpiryWorkItem = nil
+    private func handleExternalDataDeletion() {
+        estimateTask?.cancel()
+        estimateTask = nil
+        stopIntervalChecks()
+        locationService.stopUpdates()
+        alertService.cancelPendingFakeCall()
 
-        pendingNextTripAutoStart = PendingNextTripAutoStart(
-            session: session,
-            tripTitle: tripTitle,
-            baselineLocation: lastLocation,
-            createdAt: endedAt,
-            expiresAt: endedAt.addingTimeInterval(nextTripAutoStartExpirySeconds),
-            hasPrompted: false
-        )
+        currentRoutePoints.removeAll(keepingCapacity: false)
+        currentActivityEvents.removeAll(keepingCapacity: false)
+        hasTriggeredFakeCall = false
+        hasReachedDestination = false
+        runState = .active
 
-        locationService.requestPermissionsIfNeeded()
-        locationService.startSignificantUpdates()
-        locationService.requestOneTimeLocation()
+        sessionSubject.send(nil)
+        snapshotSubject.send(nil)
+        historySubject.send([])
+        journeyPlanSubject.send([])
+        journeyPlanDeletedSubject.send([])
 
-        let expiryWork = DispatchWorkItem { [weak self] in
-            self?.clearPendingNextTripAutoStart()
+        clearPersistedActiveSession()
+        widgetSyncService.clearActiveTrip()
+        Task { [weak self] in
+            await self?.endLiveActivity()
         }
-        pendingNextTripExpiryWorkItem = expiryWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + nextTripAutoStartExpirySeconds, execute: expiryWork)
-    }
-
-    private func clearPendingNextTripAutoStart() {
-        pendingNextTripExpiryWorkItem?.cancel()
-        pendingNextTripExpiryWorkItem = nil
-        pendingNextTripAutoStart = nil
-        if sessionSubject.value == nil {
-            locationService.stopUpdates()
-        }
-    }
-
-    private func handlePendingNextTripAutoStartMovement(location: CLLocation) {
-        guard var pending = pendingNextTripAutoStart else { return }
-        guard !pending.hasPrompted else { return }
-        if Date() >= pending.expiresAt {
-            clearPendingNextTripAutoStart()
-            return
-        }
-
-        let detectedActivity = detectJourneyActivity(at: location, previous: pending.baselineLocation)
-        let movedMeaningfully = isMeaningfulMovement(
-            location: location,
-            previousLocation: pending.baselineLocation,
-            detectedActivity: detectedActivity
-        )
-
-        guard movedMeaningfully else {
-            pending.baselineLocation = location
-            pendingNextTripAutoStart = pending
-            return
-        }
-
-        pending.hasPrompted = true
-        pendingNextTripAutoStart = pending
-
-        let prompt = "Start next trip: \(pending.tripTitle)? Say yes to start, or no to skip."
-        alertService.scheduleDecisionFakeCall(in: 0, message: prompt) { [weak self] accepted in
-            guard let self else { return }
-            guard let currentPending = self.pendingNextTripAutoStart else { return }
-
-            self.clearPendingNextTripAutoStart()
-
-            guard accepted else {
-                self.recordActivityEvent(
-                    status: "Next trip auto-start declined",
-                    latitude: location.coordinate.latitude,
-                    longitude: location.coordinate.longitude,
-                    timestamp: .now
-                )
-                return
-            }
-
-            let latestCoordinate = self.locationService.currentLocation?.coordinate ?? currentPending.session.startCoordinate
-            let resolvedSession = TripSession(
-                id: currentPending.session.id,
-                startCoordinate: latestCoordinate,
-                destinationCoordinate: currentPending.session.destinationCoordinate,
-                leadTimeMinutes: currentPending.session.leadTimeMinutes,
-                selectedJourneyMode: currentPending.session.selectedJourneyMode,
-                journeyPlanItemID: currentPending.session.journeyPlanItemID,
-                startedAt: max(Date(), currentPending.session.startedAt)
-            )
-            self.start(session: resolvedSession)
-        }
-    }
-
-    private struct PendingNextTripAutoStart {
-        let session: TripSession
-        let tripTitle: String
-        var baselineLocation: CLLocation?
-        let createdAt: Date
-        let expiresAt: Date
-        var hasPrompted: Bool
     }
 
     private func resolvedSessionForStart(_ session: TripSession) -> TripSession {
@@ -1799,6 +1555,7 @@ import UIKit
             guard item.id == id else { return item }
             return JourneyPlanItem(
                 id: item.id,
+                roundTripGroupID: item.roundTripGroupID,
                 title: item.title,
                 subtitle: item.subtitle,
                 startLatitude: item.startLatitude,
@@ -1828,6 +1585,7 @@ import UIKit
             guard item.id == id else { return item }
             return JourneyPlanItem(
                 id: item.id,
+                roundTripGroupID: item.roundTripGroupID,
                 title: item.title,
                 subtitle: item.subtitle,
                 startLatitude: item.startLatitude,
@@ -1893,6 +1651,7 @@ import UIKit
 
             let recalculated = JourneyPlanItem(
                 id: item.id,
+                roundTripGroupID: item.roundTripGroupID,
                 title: item.title,
                 subtitle: item.subtitle,
                 startLatitude: previousDestinationCoordinate?.latitude,
@@ -1971,6 +1730,7 @@ import UIKit
         case .destinationReached, .journeyFinished:
             updatedItem = JourneyPlanItem(
                 id: referenceItem.id,
+                roundTripGroupID: referenceItem.roundTripGroupID,
                 title: referenceItem.title,
                 subtitle: referenceItem.subtitle,
                 startLatitude: referenceItem.startLatitude,
@@ -1990,6 +1750,7 @@ import UIKit
         case .cancelledByUser, .locationTurnedOffBeforeDestination:
             updatedItem = JourneyPlanItem(
                 id: referenceItem.id,
+                roundTripGroupID: referenceItem.roundTripGroupID,
                 title: referenceItem.title,
                 subtitle: referenceItem.subtitle,
                 startLatitude: referenceItem.startLatitude,
@@ -2044,29 +1805,27 @@ import UIKit
         let timestamp = formatter.string(from: endedAt)
         let fileName = "trip-\(timestamp)-\(session.id.uuidString.prefix(6)).gpx"
 
-        guard let baseDirectory = try? gpxHistoryDirectory() else {
+        let gpxString = buildGPX(session: session, endedAt: endedAt, points: points)
+        guard let plainData = gpxString.data(using: .utf8) else {
+            return (fileName, "")
+        }
+        let fileURL: URL
+        do {
+            fileURL = try gpxFileStore.localGPXURL(fileName: fileName)
+        } catch {
             return (fileName, "")
         }
 
-        let fileURL = baseDirectory.appendingPathComponent(fileName)
-        let gpxString = buildGPX(session: session, endedAt: endedAt, points: points)
-
         do {
-            try gpxString.write(to: fileURL, atomically: true, encoding: .utf8)
+            let encrypted = try GPXFileCrypto.encrypt(plainData)
+            try encrypted.write(
+                to: fileURL,
+                options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+            )
             return (fileName, fileURL.path)
         } catch {
             return (fileName, "")
         }
-    }
-
-    private func gpxHistoryDirectory() throws -> URL {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        let directory = documents.appendingPathComponent("TripHistory", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: directory.path) {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-        return directory
     }
 
     private func buildGPX(session: TripSession, endedAt: Date, points: [PersistedTrackPoint]) -> String {

@@ -122,6 +122,7 @@ enum JourneyPlanStatus: String, Codable, CaseIterable {
 
 struct JourneyPlanItem: Identifiable, Codable, Equatable {
     let id: UUID
+    let roundTripGroupID: UUID?
     let title: String
     let subtitle: String?
     let startLatitude: Double?
@@ -140,6 +141,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
 
     init(
         id: UUID = UUID(),
+        roundTripGroupID: UUID? = nil,
         title: String,
         subtitle: String?,
         startLatitude: Double? = nil,
@@ -158,6 +160,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
     ) {
         let resolvedDuration = max(estimatedTravelDurationSeconds, 0)
         self.id = id
+        self.roundTripGroupID = roundTripGroupID
         self.title = title
         self.subtitle = subtitle
         self.startLatitude = startLatitude
@@ -177,6 +180,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case roundTripGroupID
         case title
         case subtitle
         case startLatitude
@@ -197,6 +201,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let id = try container.decode(UUID.self, forKey: .id)
+        let roundTripGroupID = try container.decodeIfPresent(UUID.self, forKey: .roundTripGroupID)
         let title = try container.decode(String.self, forKey: .title)
         let subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
         let startLatitude = try container.decodeIfPresent(Double.self, forKey: .startLatitude)
@@ -218,6 +223,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
 
         self.init(
             id: id,
+            roundTripGroupID: roundTripGroupID,
             title: title,
             subtitle: subtitle,
             startLatitude: startLatitude,
@@ -239,6 +245,7 @@ struct JourneyPlanItem: Identifiable, Codable, Equatable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(roundTripGroupID, forKey: .roundTripGroupID)
         try container.encode(title, forKey: .title)
         try container.encodeIfPresent(subtitle, forKey: .subtitle)
         try container.encodeIfPresent(startLatitude, forKey: .startLatitude)
