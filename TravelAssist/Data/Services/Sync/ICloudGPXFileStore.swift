@@ -7,27 +7,22 @@ struct ICloudGPXFileStore {
         case failedToDownload
     }
 
+    private let localStore = GPXLocalFileStore()
+
     func isICloudAvailable() -> Bool {
         FileManager.default.url(forUbiquityContainerIdentifier: nil) != nil
     }
 
     func localHistoryDirectory() throws -> URL {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        let directory = documents.appendingPathComponent("TripHistory", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: directory.path) {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-        return directory
+        try localStore.localHistoryDirectory()
     }
 
     func localGPXURL(fileName: String) throws -> URL {
-        try localHistoryDirectory().appendingPathComponent(fileName, isDirectory: false)
+        try localStore.localGPXURL(fileName: fileName)
     }
 
     func localGPXURLIfExists(fileName: String) -> URL? {
-        guard let url = try? localGPXURL(fileName: fileName) else { return nil }
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        localStore.localGPXURLIfExists(fileName: fileName)
     }
 
     func iCloudGPXDirectory() throws -> URL {
@@ -84,7 +79,7 @@ struct ICloudGPXFileStore {
         coordinator.coordinate(readingItemAt: iCloudURL, options: [], writingItemAt: localURL, options: .forReplacing, error: &coordError) { source, destination in
             do {
                 let data = try Data(contentsOf: source)
-                try data.write(to: destination, options: [.atomic])
+                try data.write(to: destination, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             } catch {
                 // Ignore.
             }

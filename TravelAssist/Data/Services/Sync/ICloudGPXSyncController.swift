@@ -72,13 +72,19 @@ final class ICloudGPXSyncController {
         // Push local GPX files
         for session in sessions {
             guard !session.gpxFileName.isEmpty else { continue }
-
             if !session.gpxFilePath.isEmpty,
                FileManager.default.fileExists(atPath: session.gpxFilePath) {
                 scheduleUpload(localPath: session.gpxFilePath, fileName: session.gpxFileName)
-            } else {
-                scheduleDownload(fileName: session.gpxFileName, sessionID: session.id)
+                continue
             }
+            if let url = store.localGPXURLIfExists(fileName: session.gpxFileName) {
+                DispatchQueue.main.async {
+                    self.repository.updateHistorySessionGPXPath(id: session.id, path: url.path)
+                }
+                scheduleUpload(localPath: url.path, fileName: session.gpxFileName)
+                continue
+            }
+            scheduleDownload(fileName: session.gpxFileName, sessionID: session.id)
         }
     }
 
@@ -177,4 +183,3 @@ private final class GPXDirectoryPresenter: NSObject, NSFilePresenter {
         onChange()
     }
 }
-

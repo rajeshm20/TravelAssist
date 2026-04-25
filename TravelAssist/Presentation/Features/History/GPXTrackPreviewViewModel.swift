@@ -35,8 +35,9 @@ final class GPXTrackPreviewViewModel: ObservableObject {
             }
 
             do {
-                let data = try Data(contentsOf: localURL)
-                let track = GPXTrackParser.parse(data: data)
+                let stored = try Data(contentsOf: localURL)
+                let decrypted = try GPXFileCrypto.decryptIfNeeded(stored)
+                let track = GPXTrackParser.parse(data: decrypted)
                 if track.coordinates.count < 2 {
                     self.polyline = nil
                     self.statusText = "GPX has no track points"
