@@ -1,8 +1,6 @@
 import Testing
 import Foundation
-import CallKit
 import UserNotifications
-import AVFoundation
 @testable import TravelAssist
 
 @Suite("LocalFakeCallAlertService Tests")
@@ -42,28 +40,4 @@ struct LocalFakeCallAlertServiceTests {
         await service.scheduleFakeCall(in: 100, message: "First")
         await service.scheduleFakeCall(in: 0.1, message: "Second")
     }
-
-    @Test("Test CXProviderDelegate reset")
-    func testProviderDidReset() async throws {
-        let service = await LocalFakeCallAlertService()
-        let provider = CXProvider(configuration: CXProviderConfiguration(localizedName: "Test"))
-        await service.providerDidReset(provider)
-    }
-
-    @Test("Test CXProviderDelegate perform AnswerCallAction")
-    func testProviderPerformAnswerCallAction() async throws {
-        let service = await LocalFakeCallAlertService()
-        let action = CXAnswerCallAction(call: UUID())
-        let provider = CXProvider(configuration: CXProviderConfiguration(localizedName: "Test"))
-        await service.provider(provider, perform: action)
-    }
-
-    @Test("Test CXProviderDelegate perform EndCallAction")
-    func testProviderPerformEndCallAction() async throws {
-        let service = await LocalFakeCallAlertService()
-        let action = CXEndCallAction(call: UUID())
-        let provider = CXProvider(configuration: CXProviderConfiguration(localizedName: "Test"))
-        await service.provider(provider, perform: action)
-    }
 }
-

@@ -18,6 +18,7 @@ struct ICloudJourneyPlanSyncTests {
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             alertService: TestFakeCallAlertService(),
+            progressNotificationService: TestTripProgressNotificationService(),
             backgroundTaskScheduler: TestBackgroundTaskScheduler(),
             widgetSyncService: TestWidgetSyncService(),
             defaults: defaults
@@ -81,6 +82,7 @@ struct ICloudJourneyPlanSyncTests {
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             alertService: TestFakeCallAlertService(),
+            progressNotificationService: TestTripProgressNotificationService(),
             backgroundTaskScheduler: TestBackgroundTaskScheduler(),
             widgetSyncService: TestWidgetSyncService(),
             defaults: defaults
@@ -91,7 +93,7 @@ struct ICloudJourneyPlanSyncTests {
         defer { cancellable.cancel() }
 
         let itemID = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let t0 = Date().addingTimeInterval(-60)
 
         let local = JourneyPlanItem(
             id: itemID,
@@ -146,7 +148,6 @@ private struct TestETAEstimator: ETAEstimator {
 private struct TestFakeCallAlertService: FakeCallAlertService {
     func requestPermissionsIfNeeded() {}
     func scheduleFakeCall(in seconds: TimeInterval, message: String) {}
-    func scheduleDecisionFakeCall(in seconds: TimeInterval, message: String, decisionHandler: @escaping (Bool) -> Void) {}
     func cancelPendingFakeCall() {}
 }
 

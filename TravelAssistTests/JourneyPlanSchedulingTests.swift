@@ -18,6 +18,7 @@ struct JourneyPlanSchedulingTests {
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             alertService: TestFakeCallAlertService(),
+            progressNotificationService: TestTripProgressNotificationService(),
             backgroundTaskScheduler: TestBackgroundTaskScheduler(),
             widgetSyncService: TestWidgetSyncService(),
             defaults: defaults
@@ -93,6 +94,7 @@ struct JourneyPlanSchedulingTests {
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             alertService: TestFakeCallAlertService(),
+            progressNotificationService: TestTripProgressNotificationService(),
             backgroundTaskScheduler: TestBackgroundTaskScheduler(),
             widgetSyncService: TestWidgetSyncService(),
             defaults: defaults
@@ -162,6 +164,7 @@ struct JourneyPlanSchedulingTests {
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             alertService: TestFakeCallAlertService(),
+            progressNotificationService: TestTripProgressNotificationService(),
             backgroundTaskScheduler: TestBackgroundTaskScheduler(),
             widgetSyncService: TestWidgetSyncService(),
             defaults: defaults
@@ -270,6 +273,7 @@ struct JourneyPlanSchedulingTests {
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             alertService: TestFakeCallAlertService(),
+            progressNotificationService: TestTripProgressNotificationService(),
             backgroundTaskScheduler: TestBackgroundTaskScheduler(),
             widgetSyncService: TestWidgetSyncService(),
             defaults: defaults
@@ -328,6 +332,7 @@ struct JourneyPlanSchedulingTests {
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             alertService: TestFakeCallAlertService(),
+            progressNotificationService: TestTripProgressNotificationService(),
             backgroundTaskScheduler: TestBackgroundTaskScheduler(),
             widgetSyncService: TestWidgetSyncService(),
             defaults: defaults
