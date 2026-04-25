@@ -42,10 +42,12 @@ final class CoreLocationService: NSObject, LocationService {
         manager.distanceFilter = 25
         manager.activityType = .other
         manager.pausesLocationUpdatesAutomatically = true
-        if Self.supportsBackgroundLocationUpdates {
-            manager.allowsBackgroundLocationUpdates = true
-        }
+        manager.allowsBackgroundLocationUpdates = Self.supportsBackgroundLocationUpdates && backgroundMonitoringEnabled
         authorizationSubject.send(manager.authorizationStatus)
+    }
+
+    private var backgroundMonitoringEnabled: Bool {
+        UserDefaults.standard.bool(forKey: AppConstants.settingBackgroundMonitoringEnabledKey)
     }
 
     func requestPermissionsIfNeeded() {
@@ -54,6 +56,13 @@ final class CoreLocationService: NSObject, LocationService {
 
         if status == .notDetermined {
             manager.requestWhenInUseAuthorization()
+            return
+        }
+
+        if status == .authorizedWhenInUse,
+           backgroundMonitoringEnabled,
+           (wantsStandardUpdates || wantsSignificantUpdates || wantsOneTimeLocation) {
+            manager.requestAlwaysAuthorization()
         }
     }
 
@@ -130,6 +139,12 @@ final class CoreLocationService: NSObject, LocationService {
             return
         }
 
+        manager.allowsBackgroundLocationUpdates = (
+            Self.supportsBackgroundLocationUpdates &&
+            backgroundMonitoringEnabled &&
+            status == .authorizedAlways
+        )
+
         if wantsStandardUpdates {
             manager.pausesLocationUpdatesAutomatically = false
             manager.activityType = .automotiveNavigation
@@ -205,8 +220,9 @@ extension CoreLocationService: CLLocationManagerDelegate {
         if status == .authorizedWhenInUse || status == .authorizedAlways {
             applyPendingRequestsIfAuthorized()
         }
-
-        if status == .authorizedWhenInUse {
+        if status == .authorizedWhenInUse,
+           backgroundMonitoringEnabled,
+           (wantsStandardUpdates || wantsSignificantUpdates || wantsOneTimeLocation) {
             manager.requestAlwaysAuthorization()
         }
     }
