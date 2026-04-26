@@ -42,7 +42,7 @@ struct AnimatedTransportIcon: View {
             .animation(.spring(response: 0.6, dampingFraction: 0.7), value: currentIcon)
 
             // 🌊 Continuous subtle motion
-            .symbolEffect(.bounce, options: .repeat(.continuous))
+            .modifier(ConditionalSymbolEffect(currentIcon: currentIcon))
 
             .onAppear {
                 startAnimation()
@@ -64,5 +64,18 @@ struct AnimatedTransportIcon: View {
     private func stopAnimation() {
         timer?.invalidate()
         timer = nil
+    }
+}
+
+struct ConditionalSymbolEffect: ViewModifier {
+    let currentIcon: String
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.symbolEffect(.bounce, options: .repeat(.continuous))
+        } else {
+            // Continuous bounce is only available from iOS 18.
+            // This will fall back to a one-time bounce on earlier versions.
+            content.symbolEffect(.bounce)
+        }
     }
 }

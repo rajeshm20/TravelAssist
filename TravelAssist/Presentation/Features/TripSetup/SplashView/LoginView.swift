@@ -1,3 +1,12 @@
+//
+//  LoginView.swift
+//  TravelAssist
+//
+//  Created by Rajesh Mani on 22/04/26.
+//
+import SwiftUI
+import Foundation
+
 struct LoginView: View {
     @StateObject private var viewModel = TestLoginViewModel()
     
@@ -92,10 +101,17 @@ struct LoginView: View {
                 
                 // Success Overlay
                 if viewModel.isLoggedIn {
-                    SuccessOverlay()
+                    SuccessOverlay(text: $viewModel.loginSuccessMessage)
                 }
             }
             .navigationBarHidden(true)
         }
+    }
+}
+
+// Preview
+struct LoginView_Previews: PreviewProvider {
+    static var previews: some View {
+        LoginView()
     }
 }
