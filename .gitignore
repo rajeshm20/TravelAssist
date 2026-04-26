@@ -20,6 +20,7 @@ fastlane/screenshots/
 fastlane/test_output/
 fastlane/.env
 fastlane/.env.*
+fastlane/*.p8
 
 # Secrets / signing artifacts (never commit)
 *.p8
@@ -28,7 +29,7 @@ fastlane/.env.*
 *.mobileprovision
 *.key
 *.pem
-
+.env
 # Local CI outputs
 scripts/ci/.tmp/
 
