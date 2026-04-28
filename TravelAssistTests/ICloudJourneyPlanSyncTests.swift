@@ -17,7 +17,7 @@ struct ICloudJourneyPlanSyncTests {
         let repository = TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
-            alertService: TestFakeCallAlertService(),
+            promptService: TestTripPromptNotificationService(),
             progressNotificationService: TestTripProgressNotificationService(),
             backgroundTaskScheduler: TestBackgroundTaskScheduler(),
             widgetSyncService: TestWidgetSyncService(),
@@ -81,7 +81,7 @@ struct ICloudJourneyPlanSyncTests {
         let repository = TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
-            alertService: TestFakeCallAlertService(),
+            promptService: TestTripPromptNotificationService(),
             progressNotificationService: TestTripProgressNotificationService(),
             backgroundTaskScheduler: TestBackgroundTaskScheduler(),
             widgetSyncService: TestWidgetSyncService(),
@@ -145,10 +145,12 @@ private struct TestETAEstimator: ETAEstimator {
     }
 }
 
-private struct TestFakeCallAlertService: FakeCallAlertService {
+private struct TestTripPromptNotificationService: TripPromptNotificationService {
     func requestPermissionsIfNeeded() {}
-    func scheduleFakeCall(in seconds: TimeInterval, message: String) {}
-    func cancelPendingFakeCall() {}
+    func notifyLeadTime(sessionID: UUID, etaMinutes: Int) {}
+    func notifyDestinationReached(sessionID: UUID) {}
+    func scheduleNextTripPrompt(planItemID: UUID, tripTitle: String, fireAt: Date) {}
+    func cancelNextTripPrompt(planItemID: UUID) {}
 }
 
 private struct TestBackgroundTaskScheduler: BackgroundTaskScheduler {
