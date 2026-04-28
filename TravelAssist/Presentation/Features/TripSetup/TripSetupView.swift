@@ -19,8 +19,12 @@ struct TripSetupView: View {
     @State private var isJourneyPlanEditorPresented = false
     @State private var isFakeCallPresented = false
     @State private var isFakeCallSpeaking = false
+    @State private var isNextTripPromptPresented = false
+    @State private var nextTripPromptTripTitle: String = ""
+    @State private var nextTripPromptTask: Task<Void, Never>?
     @State private var selectedJourneyPlanDate = Calendar.current.startOfDay(for: Date())
     @State private var pendingDestinationDecision: DestinationDraft?
+    @State private var prefillJourneyPlanDestination: DestinationDraft?
     @State private var editingJourneyPlanItem: JourneyPlanItem?
     @State private var selectedJourneyPlanPreviewItemID: UUID?
     @State private var isPreviewingAllJourneyPlanRoutes = false
@@ -476,6 +480,24 @@ struct TripSetupView: View {
                     message: request.message
                 )
             }
+            .onReceive(NotificationCenter.default.publisher(for: .startNextTripRequested)) { _ in
+                viewModel.startPendingNextTripIfAvailable()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clearPendingNextTripRequested)) { _ in
+                viewModel.clearPendingNextTrip()
+                nextTripPromptTask?.cancel()
+                nextTripPromptTask = nil
+                isNextTripPromptPresented = false
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .tripVoicePromptRequested)) { notification in
+                guard let payload = TripVoicePromptPayload.from(userInfo: notification.userInfo) else { return }
+                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                fakeCallSpeaker.speak(payload.message) {}
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nextTripPromptScheduled)) { notification in
+                guard let payload = NextTripPromptScheduledPayload.from(userInfo: notification.userInfo) else { return }
+                scheduleNextTripPrompt(title: payload.tripTitle, fireAt: payload.fireAt)
+            }
             .sheet(isPresented: $isDestinationPickerPresented) {
                 DestinationMapPickerSheet(initialSelection: selectedDestinationDraft) { destination in
                     handleDestinationSelection(destination)
@@ -496,12 +518,14 @@ struct TripSetupView: View {
             }
             .sheet(isPresented: $isJourneyPlanEditorPresented, onDismiss: {
                 editingJourneyPlanItem = nil
+                prefillJourneyPlanDestination = nil
             }) {
                 JourneyPlanEditorSheet(
                     viewModel: viewModel,
                     existingItems: monitoringViewModel.journeyPlanItems,
                     selectedDate: selectedJourneyPlanDate,
-                    editingItem: editingJourneyPlanItem
+                    editingItem: editingJourneyPlanItem,
+                    initialDestinationDraft: prefillJourneyPlanDestination
                 )
             }
             .sheet(isPresented: $isHistoryPresented) {
@@ -557,6 +581,19 @@ struct TripSetupView: View {
                     viewModel: routePreviewViewModel,
                     weatherViewModel: routeWeatherViewModel,
                     monitoringViewModel: monitoringViewModel
+                )
+            }
+            .sheet(isPresented: $isNextTripPromptPresented) {
+                NextTripVoicePromptView(
+                    tripTitle: nextTripPromptTripTitle,
+                    onStart: {
+                        isNextTripPromptPresented = false
+                        viewModel.startPendingNextTripIfAvailable()
+                    },
+                    onNotNow: {
+                        isNextTripPromptPresented = false
+                        viewModel.clearPendingNextTrip()
+                    }
                 )
             }
             .alert(
@@ -895,6 +932,14 @@ struct TripSetupView: View {
         selectedJourneyPlanPreviewItemID = nil
         isPreviewingAllJourneyPlanRoutes = false
         guard monitoringViewModel.isMonitoring else {
+            if monitoringViewModel.journeyPlanItems.isEmpty {
+                prefillJourneyPlanDestination = draft
+                editingJourneyPlanItem = nil
+                selectedJourneyPlanDate = Calendar.current.startOfDay(for: Date())
+                isJourneyPlanExpanded = true
+                isJourneyPlanEditorPresented = true
+                return
+            }
             viewModel.applyDestinationFromAppleMaps(name: draft.title, coordinate: draft.coordinate)
             return
         }
@@ -916,6 +961,28 @@ struct TripSetupView: View {
         routePreviewViewModel.originOverrideCoordinate = nil
         routePreviewViewModel.updateDestination(latitudeText: "", longitudeText: "")
         routePreviewViewModel.focusOnCurrentRoute()
+    }
+
+    private func scheduleNextTripPrompt(title: String, fireAt: Date) {
+        nextTripPromptTask?.cancel()
+        nextTripPromptTask = nil
+
+        nextTripPromptTripTitle = title
+
+        let delay = fireAt.timeIntervalSinceNow
+        if delay <= 0 {
+            if !monitoringViewModel.isMonitoring {
+                isNextTripPromptPresented = true
+            }
+            return
+        }
+
+        nextTripPromptTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            guard !monitoringViewModel.isMonitoring else { return }
+            isNextTripPromptPresented = true
+        }
     }
 
     private func updateLocationSettingsAlertIfNeeded() {
@@ -1860,6 +1927,7 @@ private struct JourneyPlanEditorSheet: View {
     let existingItems: [JourneyPlanItem]
     let selectedDate: Date
     let editingItem: JourneyPlanItem?
+    let initialDestinationDraft: DestinationDraft?
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var routePreviewViewModel = RoutePreviewViewModel()
@@ -1877,12 +1945,14 @@ private struct JourneyPlanEditorSheet: View {
         viewModel: TripSetupViewModel,
         existingItems: [JourneyPlanItem],
         selectedDate: Date,
-        editingItem: JourneyPlanItem?
+        editingItem: JourneyPlanItem?,
+        initialDestinationDraft: DestinationDraft? = nil
     ) {
         self.viewModel = viewModel
         self.existingItems = existingItems
         self.selectedDate = selectedDate
         self.editingItem = editingItem
+        self.initialDestinationDraft = initialDestinationDraft
 
         let calendar = Calendar.current
         let lastItemForSelectedDay = existingItems
@@ -1897,9 +1967,15 @@ private struct JourneyPlanEditorSheet: View {
         let baseDate = calendar.startOfDay(for: selectedDate)
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: baseDate)?.addingTimeInterval(-60) ?? baseDate
 
+        let effectiveEditingItem: JourneyPlanItem? = {
+            guard let editingItem else { return nil }
+            guard let groupID = editingItem.roundTripGroupID else { return editingItem }
+            return existingItems.first(where: { $0.roundTripGroupID == groupID && $0.subtitle != "Return trip" }) ?? editingItem
+        }()
+
         let referenceDate: Date
-        if let editingItem {
-            referenceDate = editingItem.plannedStartAt
+        if let effectiveEditingItem {
+            referenceDate = effectiveEditingItem.plannedStartAt
         } else if let lastItemForSelectedDay {
             referenceDate = min(lastItemForSelectedDay.approximateEndAt, dayEnd)
         } else {
@@ -1918,22 +1994,23 @@ private struct JourneyPlanEditorSheet: View {
         }
 
         _plannedStartAt = State(initialValue: resolvedStartAt)
-        _estimatedTravelDurationSeconds = State(initialValue: editingItem?.estimatedTravelDurationSeconds ?? 0)
-        _selectedJourneyMode = State(initialValue: editingItem?.selectedJourneyMode ?? viewModel.selectedJourneyMode)
+        _estimatedTravelDurationSeconds = State(initialValue: effectiveEditingItem?.estimatedTravelDurationSeconds ?? 0)
+        _selectedJourneyMode = State(initialValue: effectiveEditingItem?.selectedJourneyMode ?? viewModel.selectedJourneyMode)
         _leadTimeMinutes = State(
-            initialValue: editingItem?.leadTimeMinutes ?? ((viewModel.selectedLeadHours * 60) + viewModel.selectedLeadMinutes)
+            initialValue: effectiveEditingItem?.leadTimeMinutes ?? ((viewModel.selectedLeadHours * 60) + viewModel.selectedLeadMinutes)
         )
-        _isRoundTripToCurrentLocationEnabled = State(initialValue: false)
-        _destinationDraft = State(
-            initialValue: editingItem.map {
-                DestinationDraft(
-                    title: $0.title,
-                    subtitle: $0.subtitle,
-                    coordinate: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude),
-                    estimatedTravelTime: $0.estimatedTravelDurationSeconds
+        _isRoundTripToCurrentLocationEnabled = State(initialValue: editingItem?.roundTripGroupID != nil)
+        _destinationDraft = State(initialValue: {
+            if let effectiveEditingItem {
+                return DestinationDraft(
+                    title: effectiveEditingItem.title,
+                    subtitle: effectiveEditingItem.subtitle,
+                    coordinate: CLLocationCoordinate2D(latitude: effectiveEditingItem.latitude, longitude: effectiveEditingItem.longitude),
+                    estimatedTravelTime: effectiveEditingItem.estimatedTravelDurationSeconds
                 )
             }
-        )
+            return initialDestinationDraft
+        }())
     }
 
     var body: some View {
@@ -2107,9 +2184,35 @@ private struct JourneyPlanEditorSheet: View {
 
     private func saveJourneyPlan() {
         guard let destinationDraft else { return }
-        if editingItem == nil,
-           isRoundTripToCurrentLocationEnabled,
-           let currentCoordinate = routePreviewViewModel.currentCoordinate {
+        if let groupID = editingItem?.roundTripGroupID {
+            if isRoundTripToCurrentLocationEnabled {
+                viewModel.updateRoundTripJourneyPlanItems(
+                    existingItems: existingItems,
+                    groupID: groupID,
+                    outboundTitle: destinationDraft.title,
+                    outboundSubtitle: destinationDraft.subtitle,
+                    outboundCoordinate: destinationDraft.coordinate,
+                    plannedStartAt: plannedStartAt,
+                    estimatedTravelDurationSeconds: resolvedTravelDurationSeconds,
+                    selectedJourneyMode: selectedJourneyMode,
+                    leadTimeMinutes: leadTimeMinutes
+                )
+            } else {
+                viewModel.disableRoundTripJourneyPlanItems(
+                    existingItems: existingItems,
+                    groupID: groupID,
+                    outboundTitle: destinationDraft.title,
+                    outboundSubtitle: destinationDraft.subtitle,
+                    outboundCoordinate: destinationDraft.coordinate,
+                    plannedStartAt: plannedStartAt,
+                    estimatedTravelDurationSeconds: resolvedTravelDurationSeconds,
+                    selectedJourneyMode: selectedJourneyMode,
+                    leadTimeMinutes: leadTimeMinutes
+                )
+            }
+        } else if editingItem == nil,
+                  isRoundTripToCurrentLocationEnabled,
+                  let currentCoordinate = routePreviewViewModel.currentCoordinate {
             viewModel.saveRoundTripJourneyPlanItems(
                 existingItems: existingItems,
                 outboundTitle: destinationDraft.title,
@@ -2219,7 +2322,7 @@ private struct JourneyPlanEditorSheet: View {
                 .background(Color(red: 0.91, green: 0.93, blue: 0.98), in: Capsule())
             }
 
-            if editingItem == nil {
+            if editingItem == nil || editingItem?.roundTripGroupID != nil {
                 Toggle(isOn: $isRoundTripToCurrentLocationEnabled) {
                     Label("Round trip back to current location", systemImage: "arrow.uturn.backward.circle")
                         .font(.subheadline.weight(.semibold))

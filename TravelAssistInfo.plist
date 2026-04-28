@@ -49,6 +49,10 @@
 	<string>Used (optionally) to keep monitoring an active trip in the background so we can estimate ETA and alert you when you are within your lead time.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Used to show route previews from your current location and to monitor an active trip while the app is open.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Used for hands-free voice confirmation (yes/no) to start the next planned trip when the app is open.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Used for hands-free voice confirmation (yes/no) to start the next planned trip when the app is open.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
