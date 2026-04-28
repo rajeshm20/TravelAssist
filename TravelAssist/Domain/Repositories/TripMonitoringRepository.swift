@@ -57,5 +57,7 @@ protocol TripMonitoringRepository {
     func replaceJourneyPlanItems(_ items: [JourneyPlanItem])
     func recordUserAction(_ status: String)
     func triggerFakeCallForTesting()
+    func startPendingNextTripIfAvailable()
+    func clearPendingNextTrip()
     func refreshFromBackground()
 }
