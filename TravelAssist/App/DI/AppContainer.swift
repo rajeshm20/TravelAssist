@@ -18,13 +18,15 @@ final class AppContainer {
     private let recordTripUserActionUseCase: RecordTripUserActionUseCase
     private let stopUseCase: StopTripMonitoringUseCase
     private let triggerTestFakeCallUseCase: TriggerTestFakeCallUseCase
+    private let startPendingNextTripUseCase: StartPendingNextTripUseCase
+    private let clearPendingNextTripUseCase: ClearPendingNextTripUseCase
     private let observeUseCase: ObserveTripStateUseCase
 
     init() {
         let locationService = CoreLocationService()
         self.locationService = locationService
         let etaEstimator = MapKitETAEstimator()
-        let alertService = LocalFakeCallAlertService()
+        let promptService = LocalTripPromptNotificationService()
         let progressNotificationService = LocalTripProgressNotificationService()
         let bgScheduler = IOSBackgroundTaskScheduler()
         let widgetSync = SharedDefaultsWidgetSyncService(appGroupID: AppConstants.appGroupID)
@@ -33,7 +35,7 @@ final class AppContainer {
         let repository = TripMonitoringRepositoryImpl(
             locationService: locationService,
             etaEstimator: etaEstimator,
-            alertService: alertService,
+            promptService: promptService,
             progressNotificationService: progressNotificationService,
             backgroundTaskScheduler: bgScheduler,
             widgetSyncService: widgetSync
@@ -53,6 +55,8 @@ final class AppContainer {
         self.recordTripUserActionUseCase = RecordTripUserActionUseCaseImpl(repository: repository)
         self.stopUseCase = StopTripMonitoringUseCaseImpl(repository: repository)
         self.triggerTestFakeCallUseCase = TriggerTestFakeCallUseCaseImpl(repository: repository)
+        self.startPendingNextTripUseCase = StartPendingNextTripUseCaseImpl(repository: repository)
+        self.clearPendingNextTripUseCase = ClearPendingNextTripUseCaseImpl(repository: repository)
         self.observeUseCase = ObserveTripStateUseCaseImpl(repository: repository)
 
         // Register once during container creation so scheduler is ready before any restore flow schedules refresh.
@@ -76,7 +80,9 @@ final class AppContainer {
             addJourneyPlanItemUseCase: addJourneyPlanItemUseCase,
             replaceJourneyPlanItemsUseCase: replaceJourneyPlanItemsUseCase,
             recordTripUserActionUseCase: recordTripUserActionUseCase,
-            triggerTestFakeCallUseCase: triggerTestFakeCallUseCase
+            triggerTestFakeCallUseCase: triggerTestFakeCallUseCase,
+            startPendingNextTripUseCase: startPendingNextTripUseCase,
+            clearPendingNextTripUseCase: clearPendingNextTripUseCase
         )
     }
 

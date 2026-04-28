@@ -10,6 +10,12 @@ enum AppConstants {
     static let tripProgressNotificationPrefix = "travelassist.trip.progress"
     static let fakeCallNotificationMessage = "This is Travel Assist Support! Your Destination Reached, Thank you!"
 
+    static let nextTripPromptCategoryID = "travelassist.nextTripPrompt"
+    static let nextTripStartActionID = "travelassist.action.startNextTrip"
+    static let nextTripNotNowActionID = "travelassist.action.notNow"
+
+    static let pendingNextTripSeedKey = "trip.pending.next.session"
+
     static let settingICloudHistorySyncEnabledKey = "settings.icloud.history.sync.enabled"
     static let settingICloudGPXSyncEnabledKey = "settings.icloud.gpx.sync.enabled"
     static let settingICloudJourneyPlanSyncEnabledKey = "settings.icloud.journeyplan.sync.enabled"

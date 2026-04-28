@@ -15,7 +15,7 @@ import UIKit
 
     private let locationService: LocationService
     private let etaEstimator: ETAEstimator
-    private let alertService: FakeCallAlertService
+    private let promptService: TripPromptNotificationService
     private let progressNotificationService: TripProgressNotificationService
     private let backgroundTaskScheduler: BackgroundTaskScheduler
     private let widgetSyncService: WidgetSyncService
@@ -85,7 +85,7 @@ import UIKit
     init(
         locationService: LocationService,
         etaEstimator: ETAEstimator,
-        alertService: FakeCallAlertService,
+        promptService: TripPromptNotificationService,
         progressNotificationService: TripProgressNotificationService,
         backgroundTaskScheduler: BackgroundTaskScheduler,
         widgetSyncService: WidgetSyncService,
@@ -93,7 +93,7 @@ import UIKit
     ) {
         self.locationService = locationService
         self.etaEstimator = etaEstimator
-        self.alertService = alertService
+        self.promptService = promptService
         self.progressNotificationService = progressNotificationService
         self.backgroundTaskScheduler = backgroundTaskScheduler
         self.widgetSyncService = widgetSyncService
@@ -198,7 +198,6 @@ import UIKit
         )
         persistActiveSession(resolvedSession)
 
-        alertService.requestPermissionsIfNeeded()
         locationService.requestPermissionsIfNeeded()
         locationService.startStandardUpdates()
         locationService.startSignificantUpdates()
@@ -316,11 +315,41 @@ import UIKit
     }
 
     func triggerFakeCallForTesting() {
-        alertService.requestPermissionsIfNeeded()
-        alertService.scheduleFakeCall(
-            in: 0,
-            message: AppConstants.fakeCallNotificationMessage
+        promptService.requestPermissionsIfNeeded()
+        promptService.notifyDestinationReached(sessionID: UUID())
+    }
+
+    func startPendingNextTripIfAvailable() {
+        guard sessionSubject.value == nil else { return }
+        guard let seed = loadPendingNextTripSeed() else { return }
+        guard let nextItem = journeyPlanSubject.value.first(where: { $0.id == seed.planItemID }) else {
+            clearPendingNextTrip()
+            return
+        }
+
+        let startCoordinate = locationService.currentLocation?.coordinate ?? snapshotSubject.value?.currentCoordinate
+        guard let startCoordinate else { return }
+
+        clearPendingNextTrip()
+
+        let session = TripSession(
+            startCoordinate: startCoordinate,
+            destinationCoordinate: CLLocationCoordinate2D(latitude: nextItem.latitude, longitude: nextItem.longitude),
+            leadTimeMinutes: nextItem.leadTimeMinutes,
+            selectedJourneyMode: nextItem.selectedJourneyMode,
+            journeyPlanItemID: nextItem.id,
+            startedAt: .now
         )
+        start(session: session)
+    }
+
+    func clearPendingNextTrip() {
+        guard let seed = loadPendingNextTripSeed() else {
+            defaults?.removeObject(forKey: AppConstants.pendingNextTripSeedKey)
+            return
+        }
+        promptService.cancelNextTripPrompt(planItemID: seed.planItemID)
+        defaults?.removeObject(forKey: AppConstants.pendingNextTripSeedKey)
     }
 
     func refreshFromBackground() {
@@ -334,6 +363,24 @@ import UIKit
             scheduleEstimate(for: location)
         }
         backgroundTaskScheduler.scheduleRefresh()
+    }
+
+    private struct PendingNextTripSeed: Codable, Equatable {
+        let planItemID: UUID
+        let tripTitle: String
+        let fireAt: Date
+    }
+
+    private func savePendingNextTripSeed(_ seed: PendingNextTripSeed) {
+        guard let defaults else { return }
+        guard let encoded = try? encoder.encode(seed) else { return }
+        defaults.set(encoded, forKey: AppConstants.pendingNextTripSeedKey)
+    }
+
+    private func loadPendingNextTripSeed() -> PendingNextTripSeed? {
+        guard let defaults else { return nil }
+        guard let data = defaults.data(forKey: AppConstants.pendingNextTripSeedKey) else { return nil }
+        return try? decoder.decode(PendingNextTripSeed.self, from: data)
     }
 
     private func bindLocationUpdates() {
@@ -524,6 +571,8 @@ import UIKit
         persistActiveSession(session)
 
         if hasReachedDestination {
+            promptService.notifyDestinationReached(sessionID: session.id)
+            NextTripPromptCenter.postTripVoicePromptRequested(message: "You’ve reached your destination.")
             completeAndStop(status: .destinationReached, finalSnapshot: snapshot)
             return
         }
@@ -531,8 +580,8 @@ import UIKit
         let leadTimeSeconds = TimeInterval(session.leadTimeMinutes * 60)
         if !hasTriggeredFakeCall && estimate.etaSeconds <= leadTimeSeconds {
             hasTriggeredFakeCall = true
-            alertService.scheduleFakeCall(
-                in: 1,
+            promptService.notifyLeadTime(sessionID: session.id, etaMinutes: snapshot.etaMinutes)
+            NextTripPromptCenter.postTripVoicePromptRequested(
                 message: "Your destination is close. ETA is about \(snapshot.etaMinutes) minute(s)."
             )
         }
@@ -789,7 +838,7 @@ import UIKit
         )
         appendToHistory(historySession)
 
-        let nextSession = resolveNextPlannedSessionAfterCompletion(
+        prepareNextTripPromptIfNeeded(
             activeSession: activeSession,
             completionStatus: status,
             finalSnapshot: finalSnapshot,
@@ -816,7 +865,6 @@ import UIKit
         estimateTask = nil
         stopIntervalChecks()
 
-        alertService.cancelPendingFakeCall()
         if let progressNotificationSessionID {
             progressNotificationService.cancelQuarterProgressNotifications(sessionID: progressNotificationSessionID)
         }
@@ -833,12 +881,49 @@ import UIKit
         lastLiveActivityUpdateAt = nil
     }
 
+    private func prepareNextTripPromptIfNeeded(
+        activeSession: TripSession,
+        completionStatus: JourneyCompletionStatus,
+        finalSnapshot: TravelSnapshot?,
+        endedAt: Date
+    ) {
+        guard activeSession.journeyPlanItemID != nil else { return }
+
+        finalizeJourneyPlanItemStatus(for: activeSession, completionStatus: completionStatus, endedAt: endedAt)
+        guard shouldAdvanceJourneyPlan(after: completionStatus) else { return }
+
+        let calendar = Calendar.current
+        let candidates = journeyPlanSubject.value
+            .filter { calendar.isDate($0.plannedStartAt, inSameDayAs: endedAt) }
+            .filter { $0.status == .started }
+            .sorted { lhs, rhs in
+                if lhs.plannedStartAt == rhs.plannedStartAt {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.plannedStartAt < rhs.plannedStartAt
+            }
+
+        guard let nextItem = candidates.first(where: { $0.plannedStartAt >= endedAt }) ?? candidates.first else {
+            return
+        }
+
+        let fireAt = max(nextItem.plannedStartAt, endedAt)
+        let seed = PendingNextTripSeed(planItemID: nextItem.id, tripTitle: nextItem.title, fireAt: fireAt)
+        savePendingNextTripSeed(seed)
+        promptService.scheduleNextTripPrompt(planItemID: nextItem.id, tripTitle: nextItem.title, fireAt: fireAt)
+        NextTripPromptCenter.postNextTripPromptScheduled(planItemID: nextItem.id, tripTitle: nextItem.title, fireAt: fireAt)
+
+        if calendar.isDate(fireAt, inSameDayAs: endedAt),
+           fireAt <= endedAt.addingTimeInterval(2) {
+            NextTripPromptCenter.postTripVoicePromptRequested(message: "Start next trip to \(nextItem.title) now?")
+        }
+    }
+
     private func handleExternalDataDeletion() {
         estimateTask?.cancel()
         estimateTask = nil
         stopIntervalChecks()
         locationService.stopUpdates()
-        alertService.cancelPendingFakeCall()
 
         currentRoutePoints.removeAll(keepingCapacity: false)
         currentActivityEvents.removeAll(keepingCapacity: false)
@@ -1445,6 +1530,11 @@ import UIKit
 	        syncActiveSessionIfNeeded(with: filtered)
 	        persistJourneyPlan(filtered)
 	        widgetSyncService.syncJourneyPlan(filtered)
+
+        if let seed = loadPendingNextTripSeed(),
+           !filtered.contains(where: { $0.id == seed.planItemID }) {
+            clearPendingNextTrip()
+        }
 	    }
 
 	    private func applyDeletions(to items: [JourneyPlanItem], deletions: [JourneyPlanTombstone]) -> [JourneyPlanItem] {
@@ -1675,43 +1765,6 @@ import UIKit
         return items.map { recalculatedByID[$0.id] ?? $0 }
     }
 
-    private func resolveNextPlannedSessionAfterCompletion(
-        activeSession: TripSession,
-        completionStatus: JourneyCompletionStatus,
-        finalSnapshot: TravelSnapshot?,
-        endedAt: Date
-    ) -> NextPlannedSessionSeed? {
-        guard activeSession.journeyPlanItemID != nil else {
-            return nil
-        }
-        finalizeJourneyPlanItemStatus(for: activeSession, completionStatus: completionStatus, endedAt: endedAt)
-
-        guard shouldAdvanceJourneyPlan(after: completionStatus) else {
-            return nil
-        }
-
-        let nextItem = journeyPlanSubject.value.first { item in
-            Calendar.current.isDate(item.plannedStartAt, inSameDayAs: endedAt) &&
-            item.status == .started &&
-            item.plannedStartAt <= endedAt
-        }
-
-        guard let nextItem else { return nil }
-
-        let startCoordinate = finalSnapshot?.currentCoordinate ?? locationService.currentLocation?.coordinate
-        guard let startCoordinate else { return nil }
-
-        let session = TripSession(
-            startCoordinate: startCoordinate,
-            destinationCoordinate: CLLocationCoordinate2D(latitude: nextItem.latitude, longitude: nextItem.longitude),
-            leadTimeMinutes: nextItem.leadTimeMinutes,
-            selectedJourneyMode: nextItem.selectedJourneyMode,
-            journeyPlanItemID: nextItem.id,
-            startedAt: max(endedAt, nextItem.plannedStartAt)
-        )
-        return NextPlannedSessionSeed(session: session, tripTitle: nextItem.title)
-    }
-
     private func finalizeJourneyPlanItemStatus(
         for activeSession: TripSession,
         completionStatus: JourneyCompletionStatus,
@@ -1788,11 +1841,6 @@ import UIKit
         case .cancelledByUser, .locationTurnedOffBeforeDestination:
             return false
         }
-    }
-
-    private struct NextPlannedSessionSeed {
-        let session: TripSession
-        let tripTitle: String
     }
 
     private func writeGPXFile(

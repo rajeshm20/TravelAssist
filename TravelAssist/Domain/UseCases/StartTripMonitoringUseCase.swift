@@ -16,6 +16,38 @@ struct StartTripMonitoringUseCaseImpl: StartTripMonitoringUseCase {
     }
 }
 
+protocol StartPendingNextTripUseCase {
+    func execute()
+}
+
+struct StartPendingNextTripUseCaseImpl: StartPendingNextTripUseCase {
+    private let repository: TripMonitoringRepository
+
+    init(repository: TripMonitoringRepository) {
+        self.repository = repository
+    }
+
+    func execute() {
+        repository.startPendingNextTripIfAvailable()
+    }
+}
+
+protocol ClearPendingNextTripUseCase {
+    func execute()
+}
+
+struct ClearPendingNextTripUseCaseImpl: ClearPendingNextTripUseCase {
+    private let repository: TripMonitoringRepository
+
+    init(repository: TripMonitoringRepository) {
+        self.repository = repository
+    }
+
+    func execute() {
+        repository.clearPendingNextTrip()
+    }
+}
+
 protocol UpdateJourneyModeUseCase {
     func execute(mode: JourneyMode)
 }

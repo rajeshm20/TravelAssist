@@ -25,6 +25,8 @@ final class TripSetupViewModel: ObservableObject {
     private let replaceJourneyPlanItemsUseCase: ReplaceJourneyPlanItemsUseCase
     private let recordTripUserActionUseCase: RecordTripUserActionUseCase
     private let triggerTestFakeCallUseCase: TriggerTestFakeCallUseCase
+    private let startPendingNextTripUseCase: StartPendingNextTripUseCase
+    private let clearPendingNextTripUseCase: ClearPendingNextTripUseCase
     private let defaults = UserDefaults.standard
     private let persistedSetupKey = "tripsetup.persisted.selection"
     private let lastAutoPreviewJourneyPlanDayKey = "journeyplan.autopreview.day"
@@ -37,7 +39,9 @@ final class TripSetupViewModel: ObservableObject {
         addJourneyPlanItemUseCase: AddJourneyPlanItemUseCase,
         replaceJourneyPlanItemsUseCase: ReplaceJourneyPlanItemsUseCase,
         recordTripUserActionUseCase: RecordTripUserActionUseCase,
-        triggerTestFakeCallUseCase: TriggerTestFakeCallUseCase
+        triggerTestFakeCallUseCase: TriggerTestFakeCallUseCase,
+        startPendingNextTripUseCase: StartPendingNextTripUseCase,
+        clearPendingNextTripUseCase: ClearPendingNextTripUseCase
     ) {
         self.buildTripSessionUseCase = buildTripSessionUseCase
         self.prepareCurrentLocationUseCase = prepareCurrentLocationUseCase
@@ -47,6 +51,8 @@ final class TripSetupViewModel: ObservableObject {
         self.replaceJourneyPlanItemsUseCase = replaceJourneyPlanItemsUseCase
         self.recordTripUserActionUseCase = recordTripUserActionUseCase
         self.triggerTestFakeCallUseCase = triggerTestFakeCallUseCase
+        self.startPendingNextTripUseCase = startPendingNextTripUseCase
+        self.clearPendingNextTripUseCase = clearPendingNextTripUseCase
     }
 
     func onAppear() {
@@ -180,6 +186,14 @@ final class TripSetupViewModel: ObservableObject {
 
     func triggerTestFakeCall() {
         triggerTestFakeCallUseCase.execute()
+    }
+
+    func startPendingNextTripIfAvailable() {
+        startPendingNextTripUseCase.execute()
+    }
+
+    func clearPendingNextTrip() {
+        clearPendingNextTripUseCase.execute()
     }
 
     func recordShareEvent(name: String, details: String? = nil) {
@@ -369,6 +383,153 @@ final class TripSetupViewModel: ObservableObject {
         errorMessage = nil
         recordTripUserActionUseCase.execute(
             status: "Round trip journey planned for \(outboundTitle)"
+        )
+    }
+
+    func updateRoundTripJourneyPlanItems(
+        existingItems: [JourneyPlanItem],
+        groupID: UUID,
+        outboundTitle: String,
+        outboundSubtitle: String?,
+        outboundCoordinate: CLLocationCoordinate2D,
+        plannedStartAt: Date,
+        estimatedTravelDurationSeconds: TimeInterval,
+        selectedJourneyMode: JourneyMode,
+        leadTimeMinutes: Int
+    ) {
+        let groupItems = existingItems.filter { $0.roundTripGroupID == groupID }
+        guard let outbound = groupItems.first(where: { $0.subtitle != "Return trip" }) ?? groupItems.first else {
+            return
+        }
+        guard let returnItem = groupItems.first(where: { $0.subtitle == "Return trip" }) else {
+            // If the group is malformed, fall back to single-item update.
+            saveJourneyPlanItem(
+                existingItems: existingItems,
+                editing: outbound,
+                title: outboundTitle,
+                subtitle: outboundSubtitle,
+                coordinate: outboundCoordinate,
+                plannedStartAt: plannedStartAt,
+                estimatedTravelDurationSeconds: estimatedTravelDurationSeconds,
+                selectedJourneyMode: selectedJourneyMode,
+                leadTimeMinutes: leadTimeMinutes
+            )
+            return
+        }
+
+        let resolvedDuration = resolvedEstimatedTravelDuration(
+            estimatedTravelDurationSeconds,
+            minimumLeadTimeMinutes: leadTimeMinutes
+        )
+
+        let updatedOutbound = JourneyPlanItem(
+            id: outbound.id,
+            roundTripGroupID: groupID,
+            title: outboundTitle,
+            subtitle: outboundSubtitle,
+            startLatitude: nil,
+            startLongitude: nil,
+            latitude: outboundCoordinate.latitude,
+            longitude: outboundCoordinate.longitude,
+            userPlannedStartAt: plannedStartAt,
+            plannedStartAt: plannedStartAt,
+            estimatedTravelDurationSeconds: resolvedDuration,
+            selectedJourneyMode: selectedJourneyMode,
+            leadTimeMinutes: leadTimeMinutes,
+            status: outbound.status,
+            createdAt: outbound.createdAt,
+            updatedAt: .now
+        )
+
+        let updatedReturn = JourneyPlanItem(
+            id: returnItem.id,
+            roundTripGroupID: groupID,
+            title: returnItem.title,
+            subtitle: returnItem.subtitle,
+            startLatitude: nil,
+            startLongitude: nil,
+            latitude: returnItem.latitude,
+            longitude: returnItem.longitude,
+            userPlannedStartAt: plannedStartAt,
+            plannedStartAt: plannedStartAt,
+            estimatedTravelDurationSeconds: resolvedDuration,
+            selectedJourneyMode: selectedJourneyMode,
+            leadTimeMinutes: leadTimeMinutes,
+            status: returnItem.status,
+            createdAt: returnItem.createdAt,
+            updatedAt: .now
+        )
+
+        var updatedItems = existingItems.filter { $0.roundTripGroupID != groupID }
+        updatedItems.append(updatedOutbound)
+        updatedItems.append(updatedReturn)
+        updatedItems = recomputeJourneyPlanSchedules(
+            affectedDates: [outbound.userPlannedStartAt, plannedStartAt],
+            items: updatedItems
+        )
+
+        replaceJourneyPlanItemsUseCase.execute(items: updatedItems)
+        self.plannedStartDate = plannedStartAt
+        persistCurrentSetup()
+        errorMessage = nil
+        recordTripUserActionUseCase.execute(
+            status: "Round trip journey updated for \(outboundTitle)"
+        )
+    }
+
+    func disableRoundTripJourneyPlanItems(
+        existingItems: [JourneyPlanItem],
+        groupID: UUID,
+        outboundTitle: String,
+        outboundSubtitle: String?,
+        outboundCoordinate: CLLocationCoordinate2D,
+        plannedStartAt: Date,
+        estimatedTravelDurationSeconds: TimeInterval,
+        selectedJourneyMode: JourneyMode,
+        leadTimeMinutes: Int
+    ) {
+        let groupItems = existingItems.filter { $0.roundTripGroupID == groupID }
+        guard let outbound = groupItems.first(where: { $0.subtitle != "Return trip" }) ?? groupItems.first else {
+            return
+        }
+
+        let resolvedDuration = resolvedEstimatedTravelDuration(
+            estimatedTravelDurationSeconds,
+            minimumLeadTimeMinutes: leadTimeMinutes
+        )
+
+        let updatedOutbound = JourneyPlanItem(
+            id: outbound.id,
+            roundTripGroupID: nil,
+            title: outboundTitle,
+            subtitle: outboundSubtitle,
+            startLatitude: outbound.startLatitude,
+            startLongitude: outbound.startLongitude,
+            latitude: outboundCoordinate.latitude,
+            longitude: outboundCoordinate.longitude,
+            userPlannedStartAt: plannedStartAt,
+            plannedStartAt: plannedStartAt,
+            estimatedTravelDurationSeconds: resolvedDuration,
+            selectedJourneyMode: selectedJourneyMode,
+            leadTimeMinutes: leadTimeMinutes,
+            status: outbound.status,
+            createdAt: outbound.createdAt,
+            updatedAt: .now
+        )
+
+        var updatedItems = existingItems.filter { $0.roundTripGroupID != groupID }
+        updatedItems.append(updatedOutbound)
+        updatedItems = recomputeJourneyPlanSchedules(
+            affectedDates: [outbound.userPlannedStartAt, plannedStartAt],
+            items: updatedItems
+        )
+
+        replaceJourneyPlanItemsUseCase.execute(items: updatedItems)
+        self.plannedStartDate = plannedStartAt
+        persistCurrentSetup()
+        errorMessage = nil
+        recordTripUserActionUseCase.execute(
+            status: "Round trip disabled for \(outboundTitle)"
         )
     }
 
