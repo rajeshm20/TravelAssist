@@ -212,6 +212,13 @@ struct TripSetupView: View {
                                                 }
                                             }
                                         }
+
+                                        HStack {
+                                            Spacer()
+                                            AppleWeatherAttributionView(style: .footer)
+                                            Spacer()
+                                        }
+                                        .padding(.top, 2)
                                     }
                                 }
                             }
@@ -3057,6 +3064,15 @@ private struct RoutePreviewMapView: View {
                     }
                 }
                 Spacer()
+            }
+            .padding(10)
+
+            VStack {
+                Spacer()
+                HStack {
+                    AppleWeatherAttributionView(style: .overlay)
+                    Spacer()
+                }
             }
             .padding(10)
 

@@ -134,6 +134,13 @@ struct TravelSplashView: View {
             )
             .shadow(color: .orange, radius: 4, x: 1, y: 0.8)
 
+            VStack {
+                Spacer()
+                AppleWeatherAttributionView(style: .overlay)
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
         }
         .onAppear {
             viewModel.start()
