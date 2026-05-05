@@ -10,6 +10,10 @@ import WidgetKit
 import CoreLocation
 import MapKit
 
+private enum WidgetConstants {
+    static let appGroupID = "group.com.rajeshmani.TravelAssistant"
+}
+
 struct TravelStatusEntry: TimelineEntry {
     let date: Date
     let distanceText: String
@@ -72,6 +76,10 @@ struct TravelStatusProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (TravelStatusEntry) -> Void) {
+        if context.isPreview {
+            completion(placeholder(in: context))
+            return
+        }
         completion(loadEntry())
     }
 
@@ -82,7 +90,7 @@ struct TravelStatusProvider: TimelineProvider {
     }
 
     private func loadEntry() -> TravelStatusEntry {
-        let defaults = UserDefaults(suiteName: "group.com.rajeshmani.TravelAssist")
+        let defaults = UserDefaults(suiteName: WidgetConstants.appGroupID)
         let session = loadSession(from: defaults)
         let journeyPlan = loadJourneyPlan(from: defaults)
         let highlightedPlan = highlightedPlan(from: journeyPlan, session: session)
@@ -133,17 +141,17 @@ struct TravelStatusProvider: TimelineProvider {
         guard let nextPlan = nextTodayPlan else {
             return TravelStatusEntry(
                 date: .now,
-                distanceText: "",
-                etaText: "",
-                statusText: "",
-                modeSymbolName: "location.fill",
-                modeText: "",
+                distanceText: "Open app",
+                etaText: "Add a trip",
+                statusText: "No upcoming trips",
+                modeSymbolName: "airplane.departure",
+                modeText: "Travel ETA",
                 distanceProgress: 0,
                 timeProgress: 0,
                 highlightedPlanText: nil,
                 planSummaryText: nil,
                 hasActiveTrip: false,
-                shouldShowWidget: false,
+                shouldShowWidget: true,
                 nextPlanTitle: nil,
                 nextPlanCoordinate: nil
             )
@@ -456,13 +464,9 @@ struct TravelStatusWidgetView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        if !entry.shouldShowWidget {
-            Color.clear
-        } else {
-            widgetContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .padding(8)
-        }
+        widgetContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(8)
     }
 
     @ViewBuilder
@@ -480,11 +484,16 @@ struct TravelStatusWidgetView: View {
     }
 
     private var inlineContent: some View {
-        Text(
-            entry.hasActiveTrip
-            ? "\(Image(systemName: entry.modeSymbolName)) \(entry.etaText) • \(entry.distanceText)"
-            : "\(Image(systemName: entry.modeSymbolName)) \(entry.distanceText)-\(entry.etaText)"
-        )
+        let inlineText: String
+        if entry.hasActiveTrip {
+            inlineText = "\(entry.etaText) • \(entry.distanceText)"
+        } else if entry.etaText.isEmpty {
+            inlineText = entry.distanceText
+        } else {
+            inlineText = "\(entry.distanceText) • \(entry.etaText)"
+        }
+
+        return Text("\(Image(systemName: entry.modeSymbolName)) \(inlineText)")
             .lineLimit(1)
             .font(.caption)
     }
@@ -500,7 +509,7 @@ struct TravelStatusWidgetView: View {
             VStack(spacing: 1) {
                 Image(systemName: entry.modeSymbolName)
                     .font(.system(size: 9, weight: .semibold))
-                Text(entry.etaText.replacingOccurrences(of: " ", with: ""))
+                Text(entry.hasActiveTrip ? entry.etaText.replacingOccurrences(of: " ", with: "") : "Plan")
                     .font(.system(size: 10, weight: .bold))
             }
         }
