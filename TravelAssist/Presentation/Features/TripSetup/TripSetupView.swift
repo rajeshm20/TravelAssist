@@ -920,7 +920,11 @@ struct TripSetupView: View {
             journeyPlanDisplayItemsForSelectedDate.first
 
         guard let candidate else {
+            let hadJourneyPreviewSelection = selectedJourneyPlanPreviewItemID != nil
             selectedJourneyPlanPreviewItemID = nil
+            if hadJourneyPreviewSelection {
+                viewModel.clearPlannedJourneyPreviewSelection()
+            }
             syncRoutePreviewDestination()
             return
         }

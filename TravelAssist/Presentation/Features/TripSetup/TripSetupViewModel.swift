@@ -597,6 +597,14 @@ final class TripSetupViewModel: ObservableObject {
         persistCurrentSetup()
     }
 
+    func clearPlannedJourneyPreviewSelection() {
+        selectedDestinationName = nil
+        destinationLatitudeText = ""
+        destinationLongitudeText = ""
+        plannedStartDate = Date()
+        persistCurrentSetup()
+    }
+
     func previewJourneyPlanItem(_ item: JourneyPlanItem) {
         applyJourneyPlanSelection(item)
         errorMessage = nil
