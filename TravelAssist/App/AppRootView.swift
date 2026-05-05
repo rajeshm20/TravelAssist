@@ -40,7 +40,7 @@ struct AppRootView: View {
             startedTimeout = true
 
             // Safety timeout: don't block the app forever if WeatherKit / network is unavailable.
-            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
             guard showsSplash else { return }
             transitionToHome()
         }

@@ -26,11 +26,9 @@ final class BankGradeJailbreakDetector {
 
         #if targetEnvironment(simulator)
         return .safe
-        #endif
-
+        #else
         var score = 0
         let signals = collectSignals()
-
         if signals.suspiciousFiles { score += 2 }
         if signals.sandboxEscape { score += 3 }
         if signals.injectedLibs { score += 3 }
@@ -42,6 +40,7 @@ final class BankGradeJailbreakDetector {
         case 3...5: return .suspicious
         default: return .highRisk
         }
+        #endif
     }
 
     private static func collectSignals() -> JailbreakSignals {
@@ -54,3 +53,4 @@ final class BankGradeJailbreakDetector {
         )
     }
 }
+
