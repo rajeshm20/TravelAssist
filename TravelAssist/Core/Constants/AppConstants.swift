@@ -1,7 +1,7 @@
 import CoreLocation
 
 enum AppConstants {
-    static let appGroupID = "group.com.rajeshmani.TravelAssist"
+    static let appGroupID = "group.com.rajeshmani.TravelAssistant"
     static let backgroundRefreshTaskID = "com.rajeshmani.TravelAssist.refresh"
     static let destinationRegionIdentifier = "destination-geofence"
     static let arrivalDistanceThresholdMeters: CLLocationDistance = 150
