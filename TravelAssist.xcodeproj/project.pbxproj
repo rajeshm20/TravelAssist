@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		611C2D492F6321A400445357 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 611C2D482F6321A400445357 /* Assets.xcassets */; };
+		6188914B2FADD9AA00F9558A /* BLEOrchestration in Frameworks */ = {isa = PBXBuildFile; productRef = 6188914A2FADD9AA00F9558A /* BLEOrchestration */; };
+		6188914E2FADF08F00F9558A /* BLEOrchestration in Frameworks */ = {isa = PBXBuildFile; productRef = 6188914D2FADF08F00F9558A /* BLEOrchestration */; };
 		61D0CE022F5E788D001C3CB7 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61D0CE012F5E788C001C3CB7 /* WidgetKit.framework */; };
 		61D0CE042F5E788D001C3CB7 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61D0CE032F5E788D001C3CB7 /* SwiftUI.framework */; };
 		61D0CE152F5E788E001C3CB7 /* TravelAssistWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 61D0CDFF2F5E788C001C3CB7 /* TravelAssistWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -114,6 +116,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6188914E2FADF08F00F9558A /* BLEOrchestration in Frameworks */,
+				6188914B2FADD9AA00F9558A /* BLEOrchestration in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -301,6 +305,7 @@
 			mainGroup = 61B9B7EC2F5DE7CF00BEB79F;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				6188914C2FADF08F00F9558A /* XCRemoteSwiftPackageReference "BLEOrchestration" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 61B9B7F62F5DE7CF00BEB79F /* Products */;
@@ -541,21 +546,19 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.8;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssistant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -579,21 +582,19 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.8;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssistant;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -694,21 +695,18 @@
 				INFOPLIST_FILE = TravelAssistWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = TravelerXWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_UIRequiredDeviceCapabilities = gps;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.8;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssistant.TravelAssisttantWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -730,21 +728,18 @@
 				INFOPLIST_FILE = TravelAssistWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = TravelerXWidget;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_UIRequiredDeviceCapabilities = gps;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.8;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.rajeshmani.TravelAssistant.TravelAssisttantWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -802,6 +797,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		618891492FADD9AA00F9558A /* XCRemoteSwiftPackageReference "BLEOrchestration" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/rajeshm20/BLEOrchestration.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+		6188914C2FADF08F00F9558A /* XCRemoteSwiftPackageReference "BLEOrchestration" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/rajeshm20/BLEOrchestration.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		6188914A2FADD9AA00F9558A /* BLEOrchestration */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 618891492FADD9AA00F9558A /* XCRemoteSwiftPackageReference "BLEOrchestration" */;
+			productName = BLEOrchestration;
+		};
+		6188914D2FADF08F00F9558A /* BLEOrchestration */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6188914C2FADF08F00F9558A /* XCRemoteSwiftPackageReference "BLEOrchestration" */;
+			productName = BLEOrchestration;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 61B9B7ED2F5DE7CF00BEB79F /* Project object */;
 }

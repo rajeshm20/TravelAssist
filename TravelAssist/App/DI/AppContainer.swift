@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 
 @MainActor
@@ -23,7 +24,21 @@ final class AppContainer {
     private let observeUseCase: ObserveTripStateUseCase
 
     init() {
-        let locationService = CoreLocationService()
+        let locationService: LocationService
+        #if DEBUG
+        if Self.shouldUseSimulatedLocation {
+            locationService = SimulatedLocationService(
+                initialCoordinate: Self.simulatedStartCoordinate ?? CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.0090),
+                speedMetersPerSecond: Self.simulatedSpeedMetersPerSecond ?? 15,
+                updateIntervalSeconds: Self.simulatedUpdateIntervalSeconds ?? 1
+            )
+        } else {
+            locationService = CoreLocationService()
+        }
+        #else
+        locationService = CoreLocationService()
+        #endif
+
         self.locationService = locationService
         let etaEstimator = MapKitETAEstimator()
         let promptService = LocalTripPromptNotificationService()
@@ -64,6 +79,48 @@ final class AppContainer {
             self?.tripMonitoringRepository.refreshFromBackground()
         }
     }
+
+    #if DEBUG
+    private static let simulateLocationFlag = "-travelassist_simulate_location"
+    private static let simulateStartLatFlag = "-travelassist_simulate_start_lat"
+    private static let simulateStartLonFlag = "-travelassist_simulate_start_lon"
+    private static let simulateSpeedFlag = "-travelassist_simulate_speed_mps"
+    private static let simulateIntervalFlag = "-travelassist_simulate_interval_s"
+
+    private static var shouldUseSimulatedLocation: Bool {
+        let args = ProcessInfo.processInfo.arguments
+        guard let idx = args.firstIndex(of: simulateLocationFlag) else { return false }
+        let next = args.index(after: idx)
+        if next < args.endIndex {
+            return args[next] != "0"
+        }
+        return true
+    }
+
+    private static var simulatedStartCoordinate: CLLocationCoordinate2D? {
+        guard let lat = launchArgumentDouble(simulateStartLatFlag),
+              let lon = launchArgumentDouble(simulateStartLonFlag) else {
+            return nil
+        }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    private static var simulatedSpeedMetersPerSecond: Double? {
+        launchArgumentDouble(simulateSpeedFlag)
+    }
+
+    private static var simulatedUpdateIntervalSeconds: Double? {
+        launchArgumentDouble(simulateIntervalFlag)
+    }
+
+    private static func launchArgumentDouble(_ flag: String) -> Double? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let idx = args.firstIndex(of: flag) else { return nil }
+        let next = args.index(after: idx)
+        guard next < args.endIndex else { return nil }
+        return Double(args[next])
+    }
+    #endif
 
     func registerBackgroundTasks() {
         backgroundTaskScheduler.register { [weak self] in

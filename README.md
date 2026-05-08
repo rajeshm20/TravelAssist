@@ -1,10 +1,10 @@
 # TravelerX (SwiftUI)
-<img width="160" src="https://github.com/user-attachments/assets/b23c2578-2196-4416-bab1-9bb68cf3efb5" />
-<img width="160" src="https://github.com/user-attachments/assets/67c16c82-4a2c-4ff4-b97b-5b20d80e0f31" />
-<img width="160" src="https://github.com/user-attachments/assets/0fee76a1-540a-4bbf-82f3-a12e217bc888" />
-<img width="160" src="https://github.com/user-attachments/assets/ced847dd-d0f5-4b43-90b8-6b36bb3a4b5c" />
-<img width="160" src="https://github.com/user-attachments/assets/606359a4-8ce0-4e6d-9320-f5e1a1bacffc" />
-<img width="160" src="https://github.com/user-attachments/assets/76babf6b-4f71-4334-bb26-9494edc6613b" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 45 30" src="https://github.com/user-attachments/assets/b23c2578-2196-4416-bab1-9bb68cf3efb5" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 46 08" src="https://github.com/user-attachments/assets/67c16c82-4a2c-4ff4-b97b-5b20d80e0f31" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 46 19" src="https://github.com/user-attachments/assets/0fee76a1-540a-4bbf-82f3-a12e217bc888" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 46 30" src="https://github.com/user-attachments/assets/ced847dd-d0f5-4b43-90b8-6b36bb3a4b5c" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 46 59" src="https://github.com/user-attachments/assets/606359a4-8ce0-4e6d-9320-f5e1a1bacffc" />
+<img width="360" height="760" alt="Simulator Screenshot - iPhone 17 Pro - 2026-03-22 at 18 44 34" src="https://github.com/user-attachments/assets/76babf6b-4f71-4334-bb26-9494edc6613b" />
 
 This is a production-oriented starter architecture for your app idea:
 
@@ -63,6 +63,20 @@ Because of this, implementation combines:
    - `BGTaskSchedulerPermittedIdentifiers` includes `com.yourcompany.travelassist.refresh`
 5. Add notification permission request flow (already scaffolded).
 6. Add a custom sound file if you want ringtone-like alerts.
+
+## Debug Location Simulation (Simulator)
+
+To simulate continuous movement toward the selected destination (without using Xcode’s “Simulate Location”), run a Debug build with:
+
+- `-travelassist_simulate_location 1`
+
+Optional launch arguments:
+
+- `-travelassist_simulate_start_lat <double>` and `-travelassist_simulate_start_lon <double>` (default: Apple Park)
+- `-travelassist_simulate_speed_mps <double>` (default: `15`)
+- `-travelassist_simulate_interval_s <double>` (default: `1`)
+
+This logic is compiled only in `#if DEBUG` builds.
 
 ## App Store Policy Note
 
