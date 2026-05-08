@@ -6,16 +6,13 @@ import Darwin
 enum JailbreakDetector {
     
     static func isJailbroken(fileManager: FileManager = .default) -> Bool {
-#if targetEnvironment(simulator)
-        
+        #if targetEnvironment(simulator)
         return false
-        
-#endif
+        #else
         if skipDebugDevice() {
-
             return false
-
         }
+        
         // Multi-layered detection approach
         return hasSuspiciousFiles(fileManager: fileManager) ||
                canWriteOutsideSandbox(fileManager: fileManager) ||
@@ -23,6 +20,7 @@ enum JailbreakDetector {
                hasSuspiciousSymlinks(fileManager: fileManager) ||
                canOpenCydiaURL() ||
                hasSuspiciousSystemCalls()
+        #endif
     }
     
     // MARK: - Detection Methods
