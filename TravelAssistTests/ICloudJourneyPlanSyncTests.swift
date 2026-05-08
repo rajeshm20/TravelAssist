@@ -14,7 +14,7 @@ struct ICloudJourneyPlanSyncTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let repository = TripMonitoringRepositoryImpl(
+        let repository = await TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             promptService: TestTripPromptNotificationService(),
@@ -25,13 +25,13 @@ struct ICloudJourneyPlanSyncTests {
         )
 
         var latest: [JourneyPlanItem] = []
-        let cancellable = repository.journeyPlanPublisher.sink { latest = $0 }
+        let cancellable = await repository.journeyPlanPublisher.sink { latest = $0 }
         defer { cancellable.cancel() }
 
         let itemID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let t0 = Date(timeIntervalSince1970: 1_700_000_000)
 
-        let local = JourneyPlanItem(
+        let local = await JourneyPlanItem(
             id: itemID,
             title: "Local",
             subtitle: nil,
@@ -47,7 +47,7 @@ struct ICloudJourneyPlanSyncTests {
             updatedAt: t0
         )
 
-        let remote = JourneyPlanItem(
+        let remote = await JourneyPlanItem(
             id: itemID,
             title: "Remote",
             subtitle: nil,
@@ -63,10 +63,10 @@ struct ICloudJourneyPlanSyncTests {
             updatedAt: t0.addingTimeInterval(60)
         )
 
-        repository.addJourneyPlanItem(local)
+        await repository.addJourneyPlanItem(local)
         #expect(latest.first?.title == "Local")
 
-        repository.mergeJourneyPlanFromICloud([remote])
+        await repository.mergeJourneyPlanFromICloud([remote])
         #expect(latest.count == 1)
         #expect(latest.first?.title == "Remote")
     }
@@ -78,7 +78,7 @@ struct ICloudJourneyPlanSyncTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let repository = TripMonitoringRepositoryImpl(
+        let repository = await TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             promptService: TestTripPromptNotificationService(),
@@ -89,13 +89,13 @@ struct ICloudJourneyPlanSyncTests {
         )
 
         var latest: [JourneyPlanItem] = []
-        let cancellable = repository.journeyPlanPublisher.sink { latest = $0 }
+        let cancellable = await repository.journeyPlanPublisher.sink { latest = $0 }
         defer { cancellable.cancel() }
 
         let itemID = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
         let t0 = Date().addingTimeInterval(-60)
 
-        let local = JourneyPlanItem(
+        let local = await JourneyPlanItem(
             id: itemID,
             title: "Local",
             subtitle: nil,
@@ -111,7 +111,7 @@ struct ICloudJourneyPlanSyncTests {
             updatedAt: t0
         )
 
-        repository.addJourneyPlanItem(local)
+        await repository.addJourneyPlanItem(local)
         #expect(latest.count == 1)
 
         let tombstone = ICloudJourneyPlanSyncPayload.JourneyPlanTombstone(
@@ -119,7 +119,7 @@ struct ICloudJourneyPlanSyncTests {
             deletedAt: t0.addingTimeInterval(10)
         )
 
-        repository.mergeJourneyPlanFromICloud([], deleted: [tombstone])
+        await repository.mergeJourneyPlanFromICloud([], deleted: [tombstone])
         #expect(latest.isEmpty)
     }
 }

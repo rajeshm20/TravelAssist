@@ -1073,7 +1073,7 @@ import UIKit
 
     private func endLiveActivity() async {
         guard let liveActivity else { return }
-        await liveActivity.end(dismissalPolicy: .immediate)
+        await liveActivity.end(nil, dismissalPolicy: .immediate)
         self.liveActivity = nil
         defaults?.removeObject(forKey: StorageKeys.liveActivityID)
         lastLiveActivityState = nil
@@ -1088,7 +1088,7 @@ import UIKit
         defaults.removeObject(forKey: StorageKeys.liveActivityID)
         Task {
             for activity in Activity<TravelAssistWidgetAttributes>.activities {
-                await activity.end(dismissalPolicy: .immediate)
+                await activity.end(nil, dismissalPolicy: .immediate)
             }
         }
     }
@@ -1106,7 +1106,7 @@ import UIKit
             let selectedID = selected.id
             Task {
                 for activity in activities where activity.id != selectedID {
-                    await activity.end(dismissalPolicy: .immediate)
+                    await activity.end(nil, dismissalPolicy: .immediate)
                 }
             }
         }
