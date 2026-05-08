@@ -8,7 +8,7 @@ struct JourneyActivityDetectorTests {
 
     @Test("Indoor altitude jitter does not classify as climbing")
     func testAltitudeJitterClassifiedAsStationary() async throws {
-        let detector = JourneyActivityDetector()
+        let detector = await JourneyActivityDetector()
         let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
 
         let previous = CLLocation(
@@ -31,13 +31,13 @@ struct JourneyActivityDetectorTests {
             timestamp: baseTime.addingTimeInterval(2)
         )
 
-        let activity = detector.detect(at: current, previous: previous)
+        let activity = await detector.detect(at: current, previous: previous)
         #expect(activity == .stationary)
     }
 
     @Test("Requires a cadence (streak) before reporting climbing")
     func testClimbingRequiresConsecutiveSamples() async throws {
-        let detector = JourneyActivityDetector()
+        let detector = await JourneyActivityDetector()
         let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
         let start = CLLocationCoordinate2D(latitude: 12.0, longitude: 77.0)
         let moved = CLLocationCoordinate2D(latitude: 12.00005, longitude: 77.00005)
@@ -62,7 +62,7 @@ struct JourneyActivityDetectorTests {
             timestamp: baseTime.addingTimeInterval(4)
         )
 
-        let first = detector.detect(at: sample1, previous: sample1Prev)
+        let first = await detector.detect(at: sample1, previous: sample1Prev)
         #expect(first != .climbing)
 
         let sample2 = CLLocation(
@@ -75,13 +75,13 @@ struct JourneyActivityDetectorTests {
             timestamp: baseTime.addingTimeInterval(8)
         )
 
-        let second = detector.detect(at: sample2, previous: sample1)
+        let second = await detector.detect(at: sample2, previous: sample1)
         #expect(second == .climbing)
     }
 
     @Test("Elevator-like vertical movement with no horizontal cadence stays stationary")
     func testElevatorDoesNotTriggerClimbing() async throws {
-        let detector = JourneyActivityDetector()
+        let detector = await JourneyActivityDetector()
         let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
         let coordinate = CLLocationCoordinate2D(latitude: 12.0, longitude: 77.0)
 
@@ -105,7 +105,7 @@ struct JourneyActivityDetectorTests {
             timestamp: baseTime.addingTimeInterval(6)
         )
 
-        let activity = detector.detect(at: current, previous: previous)
+        let activity = await detector.detect(at: current, previous: previous)
         #expect(activity == .stationary)
     }
 }

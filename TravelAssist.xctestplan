@@ -1,0 +1,38 @@
+{
+  "configurations" : [
+    {
+      "id" : "CC9FD818-1E8A-4EDD-B96A-E70689772433",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:TravelAssist.xcodeproj",
+      "identifier" : "61B9B7F42F5DE7CF00BEB79F",
+      "name" : "TravelAssist"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:TravelAssist.xcodeproj",
+        "identifier" : "61B9B8012F5DE7D000BEB79F",
+        "name" : "TravelAssistTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:TravelAssist.xcodeproj",
+        "identifier" : "61B9B80B2F5DE7D000BEB79F",
+        "name" : "TravelAssistUITests"
+      }
+    }
+  ],
+  "version" : 1
+}
