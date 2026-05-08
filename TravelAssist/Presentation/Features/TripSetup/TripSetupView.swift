@@ -1320,7 +1320,7 @@ private enum JourneyPlanTimeBucket: CaseIterable {
 }
 
 	@MainActor
-	private final class FakeCallSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+private final class FakeCallSpeaker: NSObject, ObservableObject, @preconcurrency AVSpeechSynthesizerDelegate {
 	    private let synthesizer = AVSpeechSynthesizer()
 	    private var completion: (() -> Void)?
 
@@ -1517,7 +1517,7 @@ private struct DestinationMapPickerSheet: View {
                 confirmSelectionBar
             }
             .searchable(text: $query, prompt: "Search Apple Maps")
-            .onChange(of: query) { value in
+            .onChange(of: query) { _, value in
                 searchViewModel.updateQuery(value)
             }
             .onAppear {

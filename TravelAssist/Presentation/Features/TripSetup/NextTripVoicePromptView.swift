@@ -112,7 +112,7 @@ struct NextTripVoicePromptView: View {
 }
 
 @MainActor
-private final class SpokenPromptSpeaker: NSObject, ObservableObject, @preconcurrency AVSpeechSynthesizerDelegate {
+private final class SpokenPromptSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     private let synthesizer = AVSpeechSynthesizer()
     private var completion: (() -> Void)?
 

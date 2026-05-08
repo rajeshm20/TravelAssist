@@ -71,6 +71,7 @@
 		61D0CE012F5E788C001C3CB7 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		61D0CE032F5E788D001C3CB7 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		61D7B6132F64800800B1BCFF /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		61E0D5192FAAEC5E005FEFD8 /* TravelAssist.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = file; path = TravelAssist.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -146,6 +147,7 @@
 		61B9B7EC2F5DE7CF00BEB79F = {
 			isa = PBXGroup;
 			children = (
+				61E0D5192FAAEC5E005FEFD8 /* TravelAssist.xctestplan */,
 				611C2D482F6321A400445357 /* Assets.xcassets */,
 				61D7B6132F64800800B1BCFF /* README.md */,
 				61B9B7F72F5DE7CF00BEB79F /* TravelAssist */,
