@@ -79,6 +79,12 @@
             ReferencedContainer = "container:TravelAssist.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "`-travelassist_simulate_location 1`"
+            isEnabled = "YES">
+         </CommandLineArgument>
+      </CommandLineArguments>
       <LocationScenarioReference
          identifier = "Moscow, Russia"
          referenceType = "1">
