@@ -4063,12 +4063,12 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
             do {
                 let response = try await directions.calculate()
                 guard !Task.isCancelled else { return }
-                await self?.applyRouteResponse(response, requestID: requestID)
+                self?.applyRouteResponse(response, requestID: requestID)
             } catch is CancellationError {
-                await self?.handleCancelledRoute(requestID: requestID)
+                self?.handleCancelledRoute(requestID: requestID)
             } catch {
                 guard !Task.isCancelled else { return }
-                await self?.applyRouteError(error, requestID: requestID)
+                self?.applyRouteError(error, requestID: requestID)
             }
         }
     }
