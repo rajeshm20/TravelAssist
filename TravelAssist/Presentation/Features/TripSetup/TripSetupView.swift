@@ -1320,7 +1320,7 @@ private enum JourneyPlanTimeBucket: CaseIterable {
 }
 
 	@MainActor
-	private final class FakeCallSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+private final class FakeCallSpeaker: NSObject, ObservableObject, @preconcurrency AVSpeechSynthesizerDelegate {
 	    private let synthesizer = AVSpeechSynthesizer()
 	    private var completion: (() -> Void)?
 
@@ -1517,7 +1517,7 @@ private struct DestinationMapPickerSheet: View {
                 confirmSelectionBar
             }
             .searchable(text: $query, prompt: "Search Apple Maps")
-            .onChange(of: query) { value in
+            .onChange(of: query) { _, value in
                 searchViewModel.updateQuery(value)
             }
             .onAppear {
@@ -4063,12 +4063,12 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
             do {
                 let response = try await directions.calculate()
                 guard !Task.isCancelled else { return }
-                await self?.applyRouteResponse(response, requestID: requestID)
+                self?.applyRouteResponse(response, requestID: requestID)
             } catch is CancellationError {
-                await self?.handleCancelledRoute(requestID: requestID)
+                self?.handleCancelledRoute(requestID: requestID)
             } catch {
                 guard !Task.isCancelled else { return }
-                await self?.applyRouteError(error, requestID: requestID)
+                self?.applyRouteError(error, requestID: requestID)
             }
         }
     }

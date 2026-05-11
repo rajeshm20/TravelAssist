@@ -14,7 +14,7 @@ struct JourneyPlanSchedulingTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let repository = TripMonitoringRepositoryImpl(
+        let repository = await TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             promptService: TestTripPromptNotificationService(),
@@ -25,7 +25,7 @@ struct JourneyPlanSchedulingTests {
         )
 
         var latestItems: [JourneyPlanItem] = []
-        let cancellable = repository.journeyPlanPublisher.sink { latestItems = $0 }
+        let cancellable = await repository.journeyPlanPublisher.sink { latestItems = $0 }
         defer { cancellable.cancel() }
 
         let calendar = Calendar.current
@@ -36,7 +36,7 @@ struct JourneyPlanSchedulingTests {
         let trip1ID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let trip2ID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
 
-        let trip1 = JourneyPlanItem(
+        let trip1 = await JourneyPlanItem(
             id: trip1ID,
             title: "Trip 1",
             subtitle: nil,
@@ -51,7 +51,7 @@ struct JourneyPlanSchedulingTests {
             createdAt: trip1Start
         )
 
-        let trip2 = JourneyPlanItem(
+        let trip2 = await JourneyPlanItem(
             id: trip2ID,
             title: "Trip 2",
             subtitle: nil,
@@ -66,8 +66,8 @@ struct JourneyPlanSchedulingTests {
             createdAt: trip2UserStart
         )
 
-        repository.addJourneyPlanItem(trip1)
-        repository.addJourneyPlanItem(trip2)
+        await repository.addJourneyPlanItem(trip1)
+        await repository.addJourneyPlanItem(trip2)
 
         #expect(latestItems.count == 2)
         let updatedTrip1 = try #require(latestItems.first(where: { $0.id == trip1ID }))
@@ -90,7 +90,7 @@ struct JourneyPlanSchedulingTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let repository = TripMonitoringRepositoryImpl(
+        let repository = await TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             promptService: TestTripPromptNotificationService(),
@@ -101,7 +101,7 @@ struct JourneyPlanSchedulingTests {
         )
 
         var latestItems: [JourneyPlanItem] = []
-        let cancellable = repository.journeyPlanPublisher.sink { latestItems = $0 }
+        let cancellable = await repository.journeyPlanPublisher.sink { latestItems = $0 }
         defer { cancellable.cancel() }
 
         let calendar = Calendar.current
@@ -113,7 +113,7 @@ struct JourneyPlanSchedulingTests {
         let completedID = UUID(uuidString: "99999999-9999-9999-9999-999999999999")!
         let nextID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
 
-        let completed = JourneyPlanItem(
+        let completed = await JourneyPlanItem(
             id: completedID,
             title: "Completed",
             subtitle: nil,
@@ -129,7 +129,7 @@ struct JourneyPlanSchedulingTests {
             createdAt: completedStart
         )
 
-        let next = JourneyPlanItem(
+        let next = await JourneyPlanItem(
             id: nextID,
             title: "Next",
             subtitle: nil,
@@ -144,8 +144,8 @@ struct JourneyPlanSchedulingTests {
             createdAt: nextUserStart
         )
 
-        repository.addJourneyPlanItem(completed)
-        repository.addJourneyPlanItem(next)
+        await repository.addJourneyPlanItem(completed)
+        await repository.addJourneyPlanItem(next)
 
         let updatedNext = try #require(latestItems.first(where: { $0.id == nextID }))
         #expect(updatedNext.plannedStartAt == completedEnd)
@@ -160,7 +160,7 @@ struct JourneyPlanSchedulingTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let repository = TripMonitoringRepositoryImpl(
+        let repository = await TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             promptService: TestTripPromptNotificationService(),
@@ -171,7 +171,7 @@ struct JourneyPlanSchedulingTests {
         )
 
         var latestItems: [JourneyPlanItem] = []
-        let cancellable = repository.journeyPlanPublisher.sink { latestItems = $0 }
+        let cancellable = await repository.journeyPlanPublisher.sink { latestItems = $0 }
         defer { cancellable.cancel() }
 
         let calendar = Calendar.current
@@ -187,7 +187,7 @@ struct JourneyPlanSchedulingTests {
         let trip2ID = UUID(uuidString: "20202020-2020-2020-2020-202020202020")!
         let trip3ID = UUID(uuidString: "30303030-3030-3030-3030-303030303030")!
 
-        let completedTrip1 = JourneyPlanItem(
+        let completedTrip1 = await JourneyPlanItem(
             id: trip1ID,
             title: "Trip 1",
             subtitle: nil,
@@ -203,7 +203,7 @@ struct JourneyPlanSchedulingTests {
             createdAt: trip1Planned
         )
 
-        let trip2 = JourneyPlanItem(
+        let trip2 = await JourneyPlanItem(
             id: trip2ID,
             title: "Trip 2",
             subtitle: nil,
@@ -218,7 +218,7 @@ struct JourneyPlanSchedulingTests {
             createdAt: trip2UserPlanned
         )
 
-        let trip3 = JourneyPlanItem(
+        let trip3 = await JourneyPlanItem(
             id: trip3ID,
             title: "Trip 3",
             subtitle: nil,
@@ -233,9 +233,9 @@ struct JourneyPlanSchedulingTests {
             createdAt: trip3UserPlanned
         )
 
-        repository.addJourneyPlanItem(completedTrip1)
-        repository.addJourneyPlanItem(trip2)
-        repository.addJourneyPlanItem(trip3)
+        await repository.addJourneyPlanItem(completedTrip1)
+        await repository.addJourneyPlanItem(trip2)
+        await repository.addJourneyPlanItem(trip3)
 
         // With no actual deviation yet, planned times should remain at the user planned times.
         let baselineTrip2 = try #require(latestItems.first(where: { $0.id == trip2ID }))
@@ -245,7 +245,7 @@ struct JourneyPlanSchedulingTests {
 
         // User starts Trip 2 much earlier than planned; recompute should chain Trip 3 earlier too.
         let actualTrip2Start = dayStart.addingTimeInterval(9 * 3600 + 20 * 60)
-        repository.start(
+        await repository.start(
             session: TripSession(
                 startCoordinate: CLLocationCoordinate2D(latitude: completedTrip1.latitude, longitude: completedTrip1.longitude),
                 destinationCoordinate: CLLocationCoordinate2D(latitude: trip2.latitude, longitude: trip2.longitude),
@@ -269,7 +269,7 @@ struct JourneyPlanSchedulingTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let repository = TripMonitoringRepositoryImpl(
+        let repository = await TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             promptService: TestTripPromptNotificationService(),
@@ -280,14 +280,14 @@ struct JourneyPlanSchedulingTests {
         )
 
         var latestItems: [JourneyPlanItem] = []
-        let cancellable = repository.journeyPlanPublisher.sink { latestItems = $0 }
+        let cancellable = await repository.journeyPlanPublisher.sink { latestItems = $0 }
         defer { cancellable.cancel() }
 
         let calendar = Calendar.current
         let day1 = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_700_000_000))
         let day2 = calendar.date(byAdding: .day, value: 1, to: day1)!
 
-        let day1Trip = JourneyPlanItem(
+        let day1Trip = await JourneyPlanItem(
             id: UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!,
             title: "Day 1",
             subtitle: nil,
@@ -300,7 +300,7 @@ struct JourneyPlanSchedulingTests {
             createdAt: day1.addingTimeInterval(8 * 3600)
         )
 
-        let day2Trip = JourneyPlanItem(
+        let day2Trip = await JourneyPlanItem(
             id: UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!,
             title: "Day 2",
             subtitle: nil,
@@ -313,8 +313,8 @@ struct JourneyPlanSchedulingTests {
             createdAt: day2.addingTimeInterval(8 * 3600)
         )
 
-        repository.addJourneyPlanItem(day1Trip)
-        repository.addJourneyPlanItem(day2Trip)
+        await repository.addJourneyPlanItem(day1Trip)
+        await repository.addJourneyPlanItem(day2Trip)
 
         #expect(latestItems.count == 2)
         #expect(latestItems.contains(where: { $0.id == day1Trip.id }))
@@ -328,7 +328,7 @@ struct JourneyPlanSchedulingTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let repository = TripMonitoringRepositoryImpl(
+        let repository = await TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             promptService: TestTripPromptNotificationService(),
@@ -339,7 +339,7 @@ struct JourneyPlanSchedulingTests {
         )
 
         var latestItems: [JourneyPlanItem] = []
-        let cancellable = repository.journeyPlanPublisher.sink { latestItems = $0 }
+        let cancellable = await repository.journeyPlanPublisher.sink { latestItems = $0 }
         defer { cancellable.cancel() }
 
         let calendar = Calendar.current
@@ -349,7 +349,7 @@ struct JourneyPlanSchedulingTests {
         let firstID = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
         let secondID = UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
 
-        let first = JourneyPlanItem(
+        let first = await JourneyPlanItem(
             id: firstID,
             title: "Trip",
             subtitle: nil,
@@ -362,7 +362,7 @@ struct JourneyPlanSchedulingTests {
             createdAt: plannedStart
         )
 
-        let secondNearDuplicate = JourneyPlanItem(
+        let secondNearDuplicate = await JourneyPlanItem(
             id: secondID,
             title: "Trip",
             subtitle: nil,
@@ -375,8 +375,8 @@ struct JourneyPlanSchedulingTests {
             createdAt: plannedStart.addingTimeInterval(30)
         )
 
-        repository.addJourneyPlanItem(first)
-        repository.addJourneyPlanItem(secondNearDuplicate)
+        await repository.addJourneyPlanItem(first)
+        await repository.addJourneyPlanItem(secondNearDuplicate)
 
         #expect(latestItems.count == 1)
         #expect(latestItems.first?.id == secondID)
@@ -385,7 +385,7 @@ struct JourneyPlanSchedulingTests {
     @Test("JourneyPlanItem clamps negative durations to zero")
     func testJourneyPlanItemNegativeDurationClamped() async throws {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
-        let item = JourneyPlanItem(
+        let item = await JourneyPlanItem(
             title: "Trip",
             subtitle: nil,
             latitude: 0,
@@ -418,7 +418,9 @@ struct JourneyPlanSchedulingTests {
 
         let data = try #require(json.data(using: .utf8))
         let decoder = JSONDecoder()
-        let item = try decoder.decode(JourneyPlanItem.self, from: data)
+        let item = try await MainActor.run {
+            try decoder.decode(JourneyPlanItem.self, from: data)
+        }
 
         #expect(item.estimatedTravelDurationSeconds == 5 * 60)
         #expect(item.approximateEndAt == item.plannedStartAt.addingTimeInterval(5 * 60))

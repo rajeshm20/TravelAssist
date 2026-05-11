@@ -148,9 +148,13 @@ final class CoreLocationService: NSObject, LocationService {
         if wantsStandardUpdates {
             manager.pausesLocationUpdatesAutomatically = false
             manager.activityType = .automotiveNavigation
+            manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+            manager.distanceFilter = 5
         } else {
             manager.pausesLocationUpdatesAutomatically = true
             manager.activityType = .other
+            manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+            manager.distanceFilter = 25
         }
 
         if wantsStandardUpdates && !isStandardUpdatesActive {
