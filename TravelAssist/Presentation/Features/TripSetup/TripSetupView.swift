@@ -17,6 +17,7 @@ struct TripSetupView: View {
     @State private var isRoutePreviewExpanded = false
     @State private var isJourneyPlanExpanded = true
     @State private var isJourneyPlanEditorPresented = false
+    @State private var shouldPresentJourneyPlanEditorAfterDestinationPicker = false
     @State private var isFakeCallPresented = false
     @State private var isFakeCallSpeaking = false
     @State private var isNextTripPromptPresented = false
@@ -503,6 +504,12 @@ struct TripSetupView: View {
                     handleDestinationSelection(destination)
                 }
             }
+            .onChange(of: isDestinationPickerPresented) { _, isPresented in
+                guard !isPresented else { return }
+                guard shouldPresentJourneyPlanEditorAfterDestinationPicker else { return }
+                shouldPresentJourneyPlanEditorAfterDestinationPicker = false
+                isJourneyPlanEditorPresented = true
+            }
             .sheet(isPresented: $isSettingsPresented) {
                 SettingsSheet(isICloudHistorySyncEnabled: $isICloudHistorySyncEnabled)
             }
@@ -950,7 +957,8 @@ struct TripSetupView: View {
                 editingJourneyPlanItem = nil
                 selectedJourneyPlanDate = Calendar.current.startOfDay(for: Date())
                 isJourneyPlanExpanded = true
-                isJourneyPlanEditorPresented = true
+                // Defer presenting the editor until after the destination picker sheet dismisses.
+                shouldPresentJourneyPlanEditorAfterDestinationPicker = true
                 return
             }
             viewModel.applyDestinationFromAppleMaps(name: draft.title, coordinate: draft.coordinate)
@@ -1951,6 +1959,7 @@ private struct JourneyPlanEditorSheet: View {
     @State private var selectedJourneyMode: JourneyMode
     @State private var leadTimeMinutes: Int
     @State private var isRoundTripToCurrentLocationEnabled: Bool
+    @State private var isWaitingForRoundTripLocationAlertPresented = false
 
     init(
         viewModel: TripSetupViewModel,
@@ -2079,10 +2088,29 @@ private struct JourneyPlanEditorSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(editingItem == nil ? "Add" : "Save") {
+                        guard destinationDraft != nil else { return }
+
+                        if editingItem == nil,
+                           isRoundTripToCurrentLocationEnabled,
+                           routePreviewViewModel.currentCoordinate == nil {
+                            routePreviewViewModel.focusOnCurrentRoute()
+                            routePreviewViewModel.routeStatusMessage = "Waiting for current location..."
+                            isWaitingForRoundTripLocationAlertPresented = true
+                            return
+                        }
+
                         saveJourneyPlan()
                     }
-                    .disabled(isSaveDisabled)
                 }
+            }
+            .confirmationDialog(
+                "Waiting for current location",
+                isPresented: $isWaitingForRoundTripLocationAlertPresented,
+                titleVisibility: .visible
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Turn off Round Trip, or wait for current location to load so the return stop can be created.")
             }
             .sheet(isPresented: $isDestinationPickerPresented) {
                 DestinationMapPickerSheet(initialSelection: destinationDraft) { destination in
@@ -2250,15 +2278,6 @@ private struct JourneyPlanEditorSheet: View {
             )
         }
         dismiss()
-    }
-
-    private var isSaveDisabled: Bool {
-        guard destinationDraft != nil else { return true }
-        if editingItem != nil { return false }
-        if isRoundTripToCurrentLocationEnabled {
-            return routePreviewViewModel.currentCoordinate == nil
-        }
-        return false
     }
 
     private var clampedCurrentTime: Date {
