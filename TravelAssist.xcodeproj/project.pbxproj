@@ -8,8 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		611C2D492F6321A400445357 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 611C2D482F6321A400445357 /* Assets.xcassets */; };
-		6188914B2FADD9AA00F9558A /* BLEOrchestration in Frameworks */ = {isa = PBXBuildFile; productRef = 6188914A2FADD9AA00F9558A /* BLEOrchestration */; };
-		6188914E2FADF08F00F9558A /* BLEOrchestration in Frameworks */ = {isa = PBXBuildFile; productRef = 6188914D2FADF08F00F9558A /* BLEOrchestration */; };
 		61D0CE022F5E788D001C3CB7 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61D0CE012F5E788C001C3CB7 /* WidgetKit.framework */; };
 		61D0CE042F5E788D001C3CB7 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61D0CE032F5E788D001C3CB7 /* SwiftUI.framework */; };
 		61D0CE152F5E788E001C3CB7 /* TravelAssistWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 61D0CDFF2F5E788C001C3CB7 /* TravelAssistWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -117,8 +115,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6188914E2FADF08F00F9558A /* BLEOrchestration in Frameworks */,
-				6188914B2FADD9AA00F9558A /* BLEOrchestration in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -798,38 +794,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		618891492FADD9AA00F9558A /* XCRemoteSwiftPackageReference "BLEOrchestration" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/rajeshm20/BLEOrchestration.git";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
-		};
-		6188914C2FADF08F00F9558A /* XCRemoteSwiftPackageReference "BLEOrchestration" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/rajeshm20/BLEOrchestration.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		6188914A2FADD9AA00F9558A /* BLEOrchestration */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 618891492FADD9AA00F9558A /* XCRemoteSwiftPackageReference "BLEOrchestration" */;
-			productName = BLEOrchestration;
-		};
-		6188914D2FADF08F00F9558A /* BLEOrchestration */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 6188914C2FADF08F00F9558A /* XCRemoteSwiftPackageReference "BLEOrchestration" */;
-			productName = BLEOrchestration;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 61B9B7ED2F5DE7CF00BEB79F /* Project object */;
 }
