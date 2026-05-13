@@ -30,6 +30,7 @@ final class TripSetupViewModel: ObservableObject {
     private let defaults = UserDefaults.standard
     private let persistedSetupKey = "tripsetup.persisted.selection"
     private let lastAutoPreviewJourneyPlanDayKey = "journeyplan.autopreview.day"
+    private var destinationSelectionSource: DestinationSelectionSource?
 
     init(
         buildTripSessionUseCase: BuildTripSessionUseCase,
@@ -60,6 +61,15 @@ final class TripSetupViewModel: ObservableObject {
         prepareCurrentLocationUseCase.execute()
     }
 
+    func canStartMonitoring(using journeyPlanItems: [JourneyPlanItem] = []) -> Bool {
+        if destinationSelectionSource == .manual,
+           Double(destinationLatitudeText) != nil,
+           Double(destinationLongitudeText) != nil {
+            return true
+        }
+        return resolvedPlanItemForStart(from: journeyPlanItems) != nil
+    }
+
     func startMonitoring(using journeyPlanItems: [JourneyPlanItem] = []) {
         let selectedPlanItem = resolvedPlanItemForStart(from: journeyPlanItems)
 
@@ -68,7 +78,8 @@ final class TripSetupViewModel: ObservableObject {
         let journeyMode: JourneyMode
         let startCoordinateOverride: CLLocationCoordinate2D?
 
-        if let latitude = Double(destinationLatitudeText),
+        if destinationSelectionSource == .manual,
+           let latitude = Double(destinationLatitudeText),
            let longitude = Double(destinationLongitudeText) {
             destination = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
             leadTime = resolvedLeadTimeMinutes()
@@ -128,6 +139,7 @@ final class TripSetupViewModel: ObservableObject {
         selectedDestinationName = name
         destinationLatitudeText = String(format: "%.7f", coordinate.latitude)
         destinationLongitudeText = String(format: "%.7f", coordinate.longitude)
+        destinationSelectionSource = .manual
         persistCurrentSetup()
         recordTripUserActionUseCase.execute(
             status: String(
@@ -590,6 +602,7 @@ final class TripSetupViewModel: ObservableObject {
         selectedDestinationName = item.title
         destinationLatitudeText = String(format: "%.7f", item.latitude)
         destinationLongitudeText = String(format: "%.7f", item.longitude)
+        destinationSelectionSource = .journeyPlanPreview
         selectedJourneyMode = item.selectedJourneyMode
         selectedLeadHours = max(item.leadTimeMinutes / 60, 0)
         selectedLeadMinutes = max(item.leadTimeMinutes % 60, 0)
@@ -601,6 +614,7 @@ final class TripSetupViewModel: ObservableObject {
         selectedDestinationName = nil
         destinationLatitudeText = ""
         destinationLongitudeText = ""
+        destinationSelectionSource = nil
         plannedStartDate = Date()
         persistCurrentSetup()
     }
@@ -756,6 +770,7 @@ final class TripSetupViewModel: ObservableObject {
             destinationLatitudeText: destinationLatitudeText,
             destinationLongitudeText: destinationLongitudeText,
             selectedDestinationName: selectedDestinationName,
+            destinationSelectionSourceRaw: destinationSelectionSource?.rawValue,
             selectedJourneyModeRaw: selectedJourneyMode.rawValue,
             selectedLeadHours: selectedLeadHours,
             selectedLeadMinutes: selectedLeadMinutes,
@@ -774,6 +789,7 @@ final class TripSetupViewModel: ObservableObject {
         destinationLatitudeText = payload.destinationLatitudeText
         destinationLongitudeText = payload.destinationLongitudeText
         selectedDestinationName = payload.selectedDestinationName
+        destinationSelectionSource = payload.destinationSelectionSourceRaw.flatMap(DestinationSelectionSource.init(rawValue:))
         selectedJourneyMode = JourneyMode(rawValue: payload.selectedJourneyModeRaw) ?? .car
         selectedLeadHours = min(max(payload.selectedLeadHours, 0), 23)
         selectedLeadMinutes = min(max(payload.selectedLeadMinutes, 0), 59)
@@ -788,10 +804,16 @@ final class TripSetupViewModel: ObservableObject {
     }()
 }
 
+private enum DestinationSelectionSource: String, Codable {
+    case manual
+    case journeyPlanPreview
+}
+
 private struct PersistedTripSetupState: Codable {
     let destinationLatitudeText: String
     let destinationLongitudeText: String
     let selectedDestinationName: String?
+    let destinationSelectionSourceRaw: String?
     let selectedJourneyModeRaw: String
     let selectedLeadHours: Int
     let selectedLeadMinutes: Int

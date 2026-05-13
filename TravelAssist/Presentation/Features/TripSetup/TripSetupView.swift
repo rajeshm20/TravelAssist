@@ -645,7 +645,8 @@ struct TripSetupView: View {
 
     private var shouldDisableStartTripButton: Bool {
         guard !monitoringViewModel.isMonitoring else { return false }
-        return !Calendar.current.isDateInToday(selectedJourneyPlanDate)
+        guard Calendar.current.isDateInToday(selectedJourneyPlanDate) else { return true }
+        return !viewModel.canStartMonitoring(using: monitoringViewModel.journeyPlanItems)
     }
 
     private var greetingTitle: String {
@@ -903,6 +904,14 @@ struct TripSetupView: View {
 
         guard !monitoringViewModel.isMonitoring else { return }
 
+        if journeyPlanDisplayItemsForSelectedDate.isEmpty {
+            selectedJourneyPlanPreviewItemID = nil
+            isPreviewingAllJourneyPlanRoutes = false
+            viewModel.clearPlannedJourneyPreviewSelection()
+            syncRoutePreviewDestination()
+            return
+        }
+
         if isPreviewingAllJourneyPlanRoutes {
             syncRoutePreviewDestination()
             return
@@ -959,9 +968,7 @@ struct TripSetupView: View {
     private func clearDestinationAndRoutePreviewForEmptySelectedDay() {
         selectedJourneyPlanPreviewItemID = nil
         isPreviewingAllJourneyPlanRoutes = false
-        viewModel.selectedDestinationName = nil
-        viewModel.destinationLatitudeText = ""
-        viewModel.destinationLongitudeText = ""
+        viewModel.clearPlannedJourneyPreviewSelection()
         routePreviewViewModel.originOverrideCoordinate = nil
         routePreviewViewModel.updateDestination(latitudeText: "", longitudeText: "")
         routePreviewViewModel.focusOnCurrentRoute()
@@ -1277,7 +1284,7 @@ private struct JourneyPlanSection: Identifiable {
     var id: String { title }
 }
 
-private struct JourneyPlanDisplayItem: Identifiable {
+struct JourneyPlanDisplayItem: Identifiable {
     let id: UUID
     let displayStartAt: Date
     let displayEndAt: Date
@@ -3091,12 +3098,12 @@ private struct DestinationDraft {
     let estimatedTravelTime: TimeInterval?
 }
 
-private enum RoutePreviewAnnotationStyle {
+enum RoutePreviewAnnotationStyle {
     case standard
     case weatherBubble
 }
 
-private struct RoutePreviewAnnotationItem: Identifiable {
+struct RoutePreviewAnnotationItem: Identifiable {
     let id: UUID = UUID()
     let title: String
     let subtitle: String?
@@ -4063,12 +4070,12 @@ private final class RoutePreviewViewModel: NSObject, ObservableObject, CLLocatio
             do {
                 let response = try await directions.calculate()
                 guard !Task.isCancelled else { return }
-                await self?.applyRouteResponse(response, requestID: requestID)
+                self?.applyRouteResponse(response, requestID: requestID)
             } catch is CancellationError {
-                await self?.handleCancelledRoute(requestID: requestID)
+                self?.handleCancelledRoute(requestID: requestID)
             } catch {
                 guard !Task.isCancelled else { return }
-                await self?.applyRouteError(error, requestID: requestID)
+                self?.applyRouteError(error, requestID: requestID)
             }
         }
     }
