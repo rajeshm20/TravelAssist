@@ -8,13 +8,13 @@ import Testing
 struct ICloudJourneyPlanSyncTests {
 
     @Test("Remote newer updatedAt wins on merge")
-    func testMergePrefersRemoteWhenNewer() async throws {
+    func testMergePrefersRemoteWhenNewer() throws {
         let suiteName = "TravelAssistTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let repository = await TripMonitoringRepositoryImpl(
+        let repository = TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             promptService: TestTripPromptNotificationService(),
@@ -25,13 +25,13 @@ struct ICloudJourneyPlanSyncTests {
         )
 
         var latest: [JourneyPlanItem] = []
-        let cancellable = await repository.journeyPlanPublisher.sink { latest = $0 }
+        let cancellable = repository.journeyPlanPublisher.sink { latest = $0 }
         defer { cancellable.cancel() }
 
         let itemID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let t0 = Date(timeIntervalSince1970: 1_700_000_000)
 
-        let local = await JourneyPlanItem(
+        let local = JourneyPlanItem(
             id: itemID,
             title: "Local",
             subtitle: nil,
@@ -47,7 +47,7 @@ struct ICloudJourneyPlanSyncTests {
             updatedAt: t0
         )
 
-        let remote = await JourneyPlanItem(
+        let remote = JourneyPlanItem(
             id: itemID,
             title: "Remote",
             subtitle: nil,
@@ -63,22 +63,22 @@ struct ICloudJourneyPlanSyncTests {
             updatedAt: t0.addingTimeInterval(60)
         )
 
-        await repository.addJourneyPlanItem(local)
+        repository.addJourneyPlanItem(local)
         #expect(latest.first?.title == "Local")
 
-        await repository.mergeJourneyPlanFromICloud([remote])
+        repository.mergeJourneyPlanFromICloud([remote])
         #expect(latest.count == 1)
         #expect(latest.first?.title == "Remote")
     }
 
     @Test("Tombstone deletion removes item on merge")
-    func testMergeAppliesDeletionTombstone() async throws {
+    func testMergeAppliesDeletionTombstone() throws {
         let suiteName = "TravelAssistTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let repository = await TripMonitoringRepositoryImpl(
+        let repository = TripMonitoringRepositoryImpl(
             locationService: TestLocationService(),
             etaEstimator: TestETAEstimator(),
             promptService: TestTripPromptNotificationService(),
@@ -89,13 +89,13 @@ struct ICloudJourneyPlanSyncTests {
         )
 
         var latest: [JourneyPlanItem] = []
-        let cancellable = await repository.journeyPlanPublisher.sink { latest = $0 }
+        let cancellable = repository.journeyPlanPublisher.sink { latest = $0 }
         defer { cancellable.cancel() }
 
         let itemID = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
         let t0 = Date().addingTimeInterval(-60)
 
-        let local = await JourneyPlanItem(
+        let local = JourneyPlanItem(
             id: itemID,
             title: "Local",
             subtitle: nil,
@@ -111,7 +111,7 @@ struct ICloudJourneyPlanSyncTests {
             updatedAt: t0
         )
 
-        await repository.addJourneyPlanItem(local)
+        repository.addJourneyPlanItem(local)
         #expect(latest.count == 1)
 
         let tombstone = ICloudJourneyPlanSyncPayload.JourneyPlanTombstone(
@@ -119,7 +119,7 @@ struct ICloudJourneyPlanSyncTests {
             deletedAt: t0.addingTimeInterval(10)
         )
 
-        await repository.mergeJourneyPlanFromICloud([], deleted: [tombstone])
+        repository.mergeJourneyPlanFromICloud([], deleted: [tombstone])
         #expect(latest.isEmpty)
     }
 }
